@@ -1,0 +1,102 @@
+include ../../Makefile.include PYTHONMODULE-PIL-VERSION ../../download-files.include
+DEPS= ../../Makefile.include Makefile PYTHONMODULE-PIL-VERSION ../../download-files.include \
+                                  pillow-crosscompile.patch \
+                                  12-android-multi-phase.patch
+
+PYTHONPATH=$(PYTHON_SITE_PKG)
+PILPATH=$(PYTHONPATH)
+LDSHARED=$(CC) -shared
+
+# Clear pkg-config data, as it will pull from Native pkg-config incorrectly
+ifeq ($(CROSS_COMPILING), yes)
+  export PKG_CONFIG_PATH=
+  export PKG_CONFIG_LIBDIR=${PREFIX}/lib/pkgconfig
+  export PKG_CONFIG_SYSROOT_DIR=${SDKROOT}
+endif
+
+ifeq ($(OS),android)
+  PILPATH=$(PREFIX)/share/$(APP_NAME)/addons/script.module.pil
+  PILPATHLIB=$(PILPATH)/lib
+  PYTHONPATH=$(PILPATH):$(PYTHON_SITE_PKG)
+  LDFLAGS+= -L$(PREFIX)/lib/dummy-lib$(APP_NAME)/ -l$(APP_NAME) -lm
+endif
+
+SED_FLAG=-i
+ifeq (darwin, $(findstring darwin, $(BUILD)))
+  SED_FLAG=-i ''
+endif
+
+ZLIB_ROOT=$(PREFIX)
+
+ifeq (darwin, $(findstring darwin, $(HOST)))
+  ifeq ($(CPU),arm64)
+    # Work around an issue with xcode 11 stripping -arch arm64 flags.
+    # Not required for xcode 12+, but doesnt hurt either.
+    CFLAGS+= -target arm64-apple-darwin
+    LDFLAGS+= -target arm64-apple-darwin
+  endif
+
+  ifneq ($(OS),android)
+    ifeq ($(OS), darwin_embedded)
+      # AppStore Connect doesn't allow files of type bundle
+      OUTPUT_FILE_TYPE_ARG=-dynamiclib
+    else
+      OUTPUT_FILE_TYPE_ARG=-bundle
+    endif
+    LDSHARED:=$(CC) $(OUTPUT_FILE_TYPE_ARG) -undefined dynamic_lookup $(LDFLAGS)
+    ZLIB_ROOT=$(SDKROOT)/usr
+  endif
+endif
+
+# Dependency roots. skip autodetecting and potentially adding native paths
+export JPEG_ROOT=$(PREFIX)
+export FREETYPE_ROOT=$(PREFIX)
+export HARFBUZZ_ROOT=$(PREFIX)
+export FRIBIDI_ROOT=$(PREFIX)
+export ZLIB_ROOT
+
+BUILD_OPTS=--plat-name $(OS)-$(CPU) --disable-jpeg2000 --disable-webp --disable-imagequant --disable-tiff --disable-xcb --disable-lcms --disable-platform-guessing
+
+export CC CFLAGS AR RANLIB
+export PYTHONXINCLUDE=$(PREFIX)/include/python$(PYTHON_VERSION)
+export LDSHARED LDFLAGS PYTHONPATH
+export SETUPTOOLS_EXT_SUFFIX=.so
+
+all: .installed-$(PLATFORM)
+
+
+.configured-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
+	rm -rf $(PLATFORM)/*; mkdir -p $(PLATFORM)
+	cd $(PLATFORM); $(ARCHIVE_TOOL) $(ARCHIVE_TOOL_FLAGS) $(TARBALLS_LOCATION)/$(ARCHIVE)
+	cd $(PLATFORM); patch -p1 -i ../pillow-crosscompile.patch
+ifeq ($(OS),android)
+	cd $(PLATFORM); patch -p1 -i ../12-android-multi-phase.patch
+endif
+	touch $@
+
+$(PILPATHLIB):
+ifeq ($(OS),android)
+	mkdir -p $(PILPATHLIB)
+endif
+
+.installed-$(PLATFORM): .configured-$(PLATFORM) $(PILPATHLIB)
+	cd $(PLATFORM); $(NATIVEPREFIX)/bin/python3 setup.py build build_py build_ext $(BUILD_OPTS) install --install-lib $(PILPATH) bdist_egg
+ifeq ($(OS),android)
+	unzip -o $(PLATFORM)/dist/pillow-*.egg -d $(PILPATHLIB)
+	cd $(PILPATHLIB)/PIL && \
+          sed $(SED_FLAG) -e 's/import sys/import os, sys /' \
+                          -e '/__file__/ s/_imaging/lib_imaging/g' \
+                          -e "s/\.*with.*joinpath('\(.*\)').*/__file__ = os.path.join(os.environ[\"KODI_ANDROID_LIBS\"], '\1')/" \
+                          -e 's/^        /    /' \
+                              _imaging*.py
+else ifeq ($(TARGET_PLATFORM),webos)
+	unzip -o $(PLATFORM)/dist/pillow-*.egg -d $(PILPATH)
+endif
+	touch $@
+
+clean:
+	$(MAKE) -C $(PLATFORM) clean
+	rm -f .installed-$(PLATFORM) .configured-$(PLATFORM)
+
+distclean::
+	rm -rf $(PLATFORM) .installed-$(PLATFORM) .configured-$(PLATFORM)

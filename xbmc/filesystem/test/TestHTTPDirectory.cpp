@@ -1,0 +1,320 @@
+/*
+ *  Copyright (C) 2015-2020 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#include "FileItem.h"
+#include "FileItemList.h"
+#include "ServiceBroker.h"
+#include "URL.h"
+#include "filesystem/CurlFile.h"
+#include "filesystem/HTTPDirectory.h"
+#include "network/DNSNameCache.h"
+#include "network/WebServer.h"
+#include "network/httprequesthandler/HTTPVfsHandler.h"
+#include "settings/MediaSourceSettings.h"
+#include "test/TestUtils.h"
+#include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
+#include "utils/XTimeUtils.h"
+
+#include <memory>
+#include <stdlib.h>
+
+#include <gtest/gtest.h>
+
+using namespace XFILE;
+
+#define WEBSERVER_HOST "127.0.0.1"
+
+#define SOURCE_PATH "xbmc/filesystem/test/data/httpdirectory/"
+
+#define TEST_FILE_APACHE_DEFAULT "apache-default.html"
+#define TEST_FILE_APACHE_FANCY "apache-fancy.html"
+#define TEST_FILE_APACHE_HTML "apache-html.html"
+#define TEST_FILE_BASIC "basic.html"
+#define TEST_FILE_BASIC_MULTILINE "basic-multiline.html"
+#define TEST_FILE_LIGHTTP_DEFAULT "lighttp-default.html"
+#define TEST_FILE_NGINX_DEFAULT "nginx-default.html"
+#define TEST_FILE_NGINX_FANCYINDEX "nginx-fancyindex.html"
+
+#define SAMPLE_ITEM_COUNT 6
+
+#define SAMPLE_ITEM_1_LABEL "folder1"
+#define SAMPLE_ITEM_2_LABEL "folder2"
+#define SAMPLE_ITEM_3_LABEL "sample3: the sampling.mpg"
+#define SAMPLE_ITEM_4_LABEL "sample & samplability 4.mpg"
+#define SAMPLE_ITEM_5_LABEL "sample5.mpg"
+#define SAMPLE_ITEM_6_LABEL "sample6.mpg"
+
+#define SAMPLE_ITEM_1_SIZE 0
+#define SAMPLE_ITEM_2_SIZE 0
+#define SAMPLE_ITEM_3_SIZE 123
+#define SAMPLE_ITEM_4_SIZE 125952 // 123K
+#define SAMPLE_ITEM_5_SIZE 128974848 // 123M
+#define SAMPLE_ITEM_6_SIZE 132070244352 // 123G
+
+// HTTPDirectory ignores the seconds component of parsed date/times
+#define SAMPLE_ITEM_1_DATETIME "2019-01-01 01:01:00"
+#define SAMPLE_ITEM_2_DATETIME "2019-02-02 02:02:00"
+#define SAMPLE_ITEM_3_DATETIME "2019-03-03 03:03:00"
+#define SAMPLE_ITEM_4_DATETIME "2019-04-04 04:04:00"
+#define SAMPLE_ITEM_5_DATETIME "2019-05-05 05:05:00"
+#define SAMPLE_ITEM_6_DATETIME "2019-06-06 06:06:00"
+
+class TestHTTPDirectory : public testing::Test
+{
+protected:
+  TestHTTPDirectory() : m_sourcePath(XBMC_REF_FILE_PATH(SOURCE_PATH)) {}
+
+  ~TestHTTPDirectory() override = default;
+
+protected:
+  //! CWebServer's constructor needs the service broker's logger, which does not exist
+  //! during static initialisation.
+  static void SetUpTestSuite()
+  {
+    s_webServer = std::make_unique<CWebServer>();
+    s_vfsHandler = std::make_unique<CHTTPVfsHandler>();
+
+    ASSERT_TRUE(s_webServer->Start(0, "", ""));
+    s_baseUrl = StringUtils::Format("http://" WEBSERVER_HOST ":{}", s_webServer->GetPort());
+
+    s_webServer->RegisterRequestHandler(s_vfsHandler.get());
+  }
+
+  static void TearDownTestSuite()
+  {
+    if (s_webServer->IsStarted())
+      s_webServer->Stop();
+
+    s_webServer->UnregisterRequestHandler(s_vfsHandler.get());
+
+    s_vfsHandler.reset();
+    s_webServer.reset();
+    s_baseUrl.clear();
+  }
+
+  void SetUp() override
+  {
+    CServiceBroker::RegisterDNSNameCache(std::make_shared<CDNSNameCache>());
+
+    SetupMediaSources();
+  }
+
+  void TearDown() override
+  {
+    TearDownMediaSources();
+
+    CServiceBroker::UnregisterDNSNameCache();
+  }
+
+  void SetupMediaSources()
+  {
+    CMediaSource source;
+    source.strName = "WebServer Share";
+    source.strPath = m_sourcePath;
+    source.vecPaths.push_back(m_sourcePath);
+    source.m_allowSharing = true;
+    source.m_iDriveType = SourceType::LOCAL;
+    source.GetLockInfo().SetMode(LockMode::EVERYONE);
+    source.m_ignore = true;
+
+    CMediaSourceSettings::GetInstance().AddShare("videos", source);
+  }
+
+  void TearDownMediaSources() { CMediaSourceSettings::GetInstance().Clear(); }
+
+  std::string GetUrl(const std::string& path)
+  {
+    if (path.empty())
+      return s_baseUrl;
+
+    return URIUtils::AddFileToFolder(s_baseUrl, path);
+  }
+
+  std::string GetUrlOfTestFile(const std::string& testFile)
+  {
+    if (testFile.empty())
+      return "";
+
+    std::string path = URIUtils::AddFileToFolder(m_sourcePath, testFile);
+    path = CURL::Encode(path);
+    path = URIUtils::AddFileToFolder("vfs", path);
+
+    return GetUrl(path);
+  }
+
+  void CheckFileItemTypes(CFileItemList const& items)
+  {
+    ASSERT_EQ(items.GetObjectCount(), SAMPLE_ITEM_COUNT);
+
+    // folders
+    ASSERT_TRUE(items[0]->IsFolder());
+    ASSERT_TRUE(items[1]->IsFolder());
+
+    // files
+    ASSERT_FALSE(items[2]->IsFolder());
+    ASSERT_FALSE(items[3]->IsFolder());
+    ASSERT_FALSE(items[4]->IsFolder());
+    ASSERT_FALSE(items[5]->IsFolder());
+  }
+
+  void CheckFileItemLabels(CFileItemList const& items)
+  {
+    ASSERT_EQ(items.GetObjectCount(), SAMPLE_ITEM_COUNT);
+
+    ASSERT_STREQ(items[0]->GetLabel().c_str(), SAMPLE_ITEM_1_LABEL);
+    ASSERT_STREQ(items[1]->GetLabel().c_str(), SAMPLE_ITEM_2_LABEL);
+    ASSERT_STREQ(items[2]->GetLabel().c_str(), SAMPLE_ITEM_3_LABEL);
+    ASSERT_STREQ(items[3]->GetLabel().c_str(), SAMPLE_ITEM_4_LABEL);
+    ASSERT_STREQ(items[4]->GetLabel().c_str(), SAMPLE_ITEM_5_LABEL);
+    ASSERT_STREQ(items[5]->GetLabel().c_str(), SAMPLE_ITEM_6_LABEL);
+  }
+
+  void CheckFileItemDateTimes(CFileItemList const& items)
+  {
+    ASSERT_EQ(items.GetObjectCount(), SAMPLE_ITEM_COUNT);
+
+    ASSERT_STREQ(items[0]->GetDateTime().GetAsDBDateTime().c_str(), SAMPLE_ITEM_1_DATETIME);
+    ASSERT_STREQ(items[1]->GetDateTime().GetAsDBDateTime().c_str(), SAMPLE_ITEM_2_DATETIME);
+    ASSERT_STREQ(items[2]->GetDateTime().GetAsDBDateTime().c_str(), SAMPLE_ITEM_3_DATETIME);
+    ASSERT_STREQ(items[3]->GetDateTime().GetAsDBDateTime().c_str(), SAMPLE_ITEM_4_DATETIME);
+    ASSERT_STREQ(items[4]->GetDateTime().GetAsDBDateTime().c_str(), SAMPLE_ITEM_5_DATETIME);
+    ASSERT_STREQ(items[5]->GetDateTime().GetAsDBDateTime().c_str(), SAMPLE_ITEM_6_DATETIME);
+  }
+
+  void CheckFileItemSizes(CFileItemList const& items)
+  {
+    ASSERT_EQ(items.GetObjectCount(), SAMPLE_ITEM_COUNT);
+
+    // folders
+    ASSERT_EQ(items[0]->GetSize(), SAMPLE_ITEM_1_SIZE);
+    ASSERT_EQ(items[1]->GetSize(), SAMPLE_ITEM_2_SIZE);
+
+    // files - due to K/M/G conversions provided by some formats, allow for
+    // non-zero values that are less than or equal to the expected file size
+    ASSERT_NE(items[2]->GetSize(), 0);
+    ASSERT_LE(items[2]->GetSize(), SAMPLE_ITEM_3_SIZE);
+    ASSERT_NE(items[3]->GetSize(), 0);
+    ASSERT_LE(items[3]->GetSize(), SAMPLE_ITEM_4_SIZE);
+    ASSERT_NE(items[4]->GetSize(), 0);
+    ASSERT_LE(items[4]->GetSize(), SAMPLE_ITEM_5_SIZE);
+    ASSERT_NE(items[5]->GetSize(), 0);
+    ASSERT_LE(items[5]->GetSize(), SAMPLE_ITEM_6_SIZE);
+  }
+
+  void CheckFileItems(CFileItemList const& items)
+  {
+    CheckFileItemTypes(items);
+    CheckFileItemLabels(items);
+  }
+
+  void CheckFileItemsAndMetadata(CFileItemList const& items)
+  {
+    CheckFileItems(items);
+    CheckFileItemDateTimes(items);
+    CheckFileItemSizes(items);
+  }
+
+  static std::unique_ptr<CWebServer> s_webServer;
+  static std::string s_baseUrl;
+  std::string const m_sourcePath;
+  static std::unique_ptr<CHTTPVfsHandler> s_vfsHandler;
+  CHTTPDirectory m_httpDirectory;
+};
+
+std::unique_ptr<CWebServer> TestHTTPDirectory::s_webServer;
+std::string TestHTTPDirectory::s_baseUrl;
+std::unique_ptr<CHTTPVfsHandler> TestHTTPDirectory::s_vfsHandler;
+
+TEST_F(TestHTTPDirectory, IsStarted)
+{
+  ASSERT_TRUE(s_webServer->IsStarted());
+}
+
+TEST_F(TestHTTPDirectory, ApacheDefaultIndex)
+{
+  CFileItemList items;
+
+  ASSERT_TRUE(m_httpDirectory.Exists(CURL(GetUrlOfTestFile(TEST_FILE_APACHE_DEFAULT))));
+  ASSERT_TRUE(
+      m_httpDirectory.GetDirectory(CURL(GetUrlOfTestFile(TEST_FILE_APACHE_DEFAULT)), items));
+
+  CheckFileItems(items);
+}
+
+TEST_F(TestHTTPDirectory, ApacheFancyIndex)
+{
+  CFileItemList items;
+
+  ASSERT_TRUE(m_httpDirectory.Exists(CURL(GetUrlOfTestFile(TEST_FILE_APACHE_FANCY))));
+  ASSERT_TRUE(m_httpDirectory.GetDirectory(CURL(GetUrlOfTestFile(TEST_FILE_APACHE_FANCY)), items));
+
+  CheckFileItemsAndMetadata(items);
+}
+
+TEST_F(TestHTTPDirectory, ApacheHtmlIndex)
+{
+  CFileItemList items;
+
+  ASSERT_TRUE(m_httpDirectory.Exists(CURL(GetUrlOfTestFile(TEST_FILE_APACHE_HTML))));
+  ASSERT_TRUE(m_httpDirectory.GetDirectory(CURL(GetUrlOfTestFile(TEST_FILE_APACHE_HTML)), items));
+
+  CheckFileItemsAndMetadata(items);
+}
+
+TEST_F(TestHTTPDirectory, BasicIndex)
+{
+  CFileItemList items;
+
+  ASSERT_TRUE(m_httpDirectory.Exists(CURL(GetUrlOfTestFile(TEST_FILE_BASIC))));
+  ASSERT_TRUE(m_httpDirectory.GetDirectory(CURL(GetUrlOfTestFile(TEST_FILE_BASIC)), items));
+
+  CheckFileItems(items);
+}
+
+TEST_F(TestHTTPDirectory, BasicMultilineIndex)
+{
+  CFileItemList items;
+
+  ASSERT_TRUE(m_httpDirectory.Exists(CURL(GetUrlOfTestFile(TEST_FILE_BASIC_MULTILINE))));
+  ASSERT_TRUE(
+      m_httpDirectory.GetDirectory(CURL(GetUrlOfTestFile(TEST_FILE_BASIC_MULTILINE)), items));
+
+  CheckFileItems(items);
+}
+
+TEST_F(TestHTTPDirectory, LighttpDefaultIndex)
+{
+  CFileItemList items;
+
+  ASSERT_TRUE(m_httpDirectory.Exists(CURL(GetUrlOfTestFile(TEST_FILE_LIGHTTP_DEFAULT))));
+  ASSERT_TRUE(
+      m_httpDirectory.GetDirectory(CURL(GetUrlOfTestFile(TEST_FILE_LIGHTTP_DEFAULT)), items));
+
+  CheckFileItemsAndMetadata(items);
+}
+
+TEST_F(TestHTTPDirectory, NginxDefaultIndex)
+{
+  CFileItemList items;
+
+  ASSERT_TRUE(m_httpDirectory.Exists(CURL(GetUrlOfTestFile(TEST_FILE_NGINX_DEFAULT))));
+  ASSERT_TRUE(m_httpDirectory.GetDirectory(CURL(GetUrlOfTestFile(TEST_FILE_NGINX_DEFAULT)), items));
+
+  CheckFileItemsAndMetadata(items);
+}
+
+TEST_F(TestHTTPDirectory, NginxFancyIndex)
+{
+  CFileItemList items;
+
+  ASSERT_TRUE(m_httpDirectory.Exists(CURL(GetUrlOfTestFile(TEST_FILE_NGINX_FANCYINDEX))));
+  ASSERT_TRUE(m_httpDirectory.GetDirectory(CURL(GetUrlOfTestFile(TEST_FILE_NGINX_FANCYINDEX)), items));
+
+  CheckFileItemsAndMetadata(items);
+}

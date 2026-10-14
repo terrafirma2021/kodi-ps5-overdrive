@@ -1,0 +1,54 @@
+/*
+ *  Copyright (C) 2016-2024 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#include "PlatformDarwinOSX.h"
+
+#include "Util.h"
+#include "filesystem/SpecialProtocol.h"
+
+#if defined(HAS_GL)
+#include "windowing/osx/OpenGL/WinSystemOSXGL.h"
+#endif
+
+#include "platform/darwin/DarwinUtils.h"
+#include "platform/darwin/osx/powermanagement/CocoaPowerSyscall.h"
+
+#include <stdlib.h>
+#include <string>
+
+CPlatform* CPlatform::CreateInstance()
+{
+  return new CPlatformDarwinOSX();
+}
+
+bool CPlatformDarwinOSX::InitStageOne()
+{
+  if (!CPlatformDarwin::InitStageOne())
+    return false;
+
+#if defined(HAS_GL)
+  CWinSystemOSXGL::Register();
+#endif
+
+  CCocoaPowerSyscall::Register();
+
+  std::string install_path(CUtil::GetHomePath());
+  setenv("KODI_HOME", install_path.c_str(), 0);
+  setenv("AACS_HOME", CSpecialProtocol::TranslatePath("special://home").c_str(), 1);
+  setenv("LIBBLURAY_CP", (CDarwinUtils::GetJavaCPPath() + "/").c_str(), 1);
+
+  install_path += "/tools/darwin/runtime/preflight";
+  system(install_path.c_str());
+
+  return true;
+}
+
+bool CPlatformDarwinOSX::InitStageTwo()
+{
+  return true;
+}

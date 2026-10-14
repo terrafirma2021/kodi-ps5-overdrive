@@ -1,0 +1,44 @@
+--- a/src/spawn-posix.c
++++ b/src/spawn-posix.c
+@@ -413,12 +413,12 @@
+   /* This use case is for assuan pipe connect with no PGMNAME */
+   if (pgmname == NULL)
+     return 0;
+-
++/*
+   if (act->environ)
+     execve (pgmname, (char *const *)argv, act->environ);
+   else
+     execv (pgmname, (char *const *)argv);
+-
++*/
+   /* No way to print anything, as we have may have closed all streams. */
+  leave:
+   _exit (127);
+@@ -441,7 +441,7 @@
+     }
+ 
+   _gpgrt_pre_syscall ();
+-  pid = fork ();
++  pid = -1;
+   _gpgrt_post_syscall ();
+   if (pid == (pid_t)(-1))
+     {
+@@ -458,7 +458,7 @@
+       if (setsid() == -1 || chdir ("/"))
+         _exit (1);
+ 
+-      pid2 = fork (); /* Double fork to let init take over the new child. */
++      pid2 = -1; /* Double fork to let init take over the new child. */
+       if (pid2 == (pid_t)(-1))
+         _exit (1);
+       if (pid2)
+@@ -724,7 +724,7 @@
+     }
+ 
+   _gpgrt_pre_syscall ();
+-  pid = fork ();
++  pid = -1;
+   _gpgrt_post_syscall ();
+   if (pid == (pid_t)(-1))
+     {

@@ -1,0 +1,52 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#include "ScreenshotSurfaceGL.h"
+
+#include "rendering/capture/CaptureReadback.h"
+#include "utils/Screenshot.h"
+#include "windowing/WinSystem.h"
+
+#include <memory>
+
+#include "system_gl.h"
+
+void CScreenshotSurfaceGL::Register()
+{
+  CScreenShot::Register(CScreenshotSurfaceGL::CreateSurface);
+}
+
+std::unique_ptr<IScreenshotSurface> CScreenshotSurfaceGL::CreateSurface()
+{
+  return std::make_unique<CScreenshotSurfaceGL>();
+}
+
+bool CScreenshotSurfaceGL::Read(const ScreenshotContext& ctx)
+{
+  using namespace KODI::RENDERING::CAPTURE;
+
+  glReadBuffer(GL_BACK);
+
+  // get current viewport: x, y, width, height
+  GLint viewport[4];
+  glGetIntegerv(GL_VIEWPORT, viewport);
+
+  // window rows are bottom-up: flip to top-down
+  ReadbackBuffer buffer;
+  if (!ReadFramebufferRegion(viewport[0], viewport[1], static_cast<unsigned int>(viewport[2]),
+                             static_cast<unsigned int>(viewport[3]),
+                             ctx.winSystem.GetOutputBitDepth(), true, buffer))
+    return false;
+
+  m_width = static_cast<int>(buffer.width);
+  m_height = static_cast<int>(buffer.height);
+  m_stride = buffer.stride;
+  m_format = buffer.format;
+  m_buffer = reinterpret_cast<unsigned char*>(buffer.pixels.release());
+  return m_buffer != nullptr;
+}

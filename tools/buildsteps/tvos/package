@@ -1,0 +1,14 @@
+WORKSPACE=${WORKSPACE:-$( cd $(dirname $0)/../../.. ; pwd -P )}
+XBMC_PLATFORM_DIR=tvos
+. $WORKSPACE/tools/buildsteps/defaultenv
+
+cd $WORKSPACE/build/tools/darwin/packaging/darwin_embedded/
+
+#rename for upload
+#e.x. kodi-${JENKINS_BUILD_STRING}-tvos.deb
+#e.x. kodi-${JENKINS_BUILD_STRING}-tvos.ipa
+UPLOAD_DIR="$WORKSPACE/tools/darwin/packaging/tvos"
+UPLOAD_FILENAME="kodi-$(getBuildRevDateStr)-tvos"
+mkdir -p $UPLOAD_DIR
+mv *.deb $UPLOAD_DIR/$UPLOAD_FILENAME.deb
+mv *.ipa $UPLOAD_DIR/$UPLOAD_FILENAME.ipa

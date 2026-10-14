@@ -1,0 +1,6 @@
+LIBNAME=libandroidjni
+VERSION=ffac75b4da35669615c878bd3964bbb40cc101c3
+BASE_URL=https://github.com/xbmc/libandroidjni/archive
+ARCHIVE=$(VERSION).tar.gz
+SHA512=f8d291f6befb373db261377ada4e310e06a14894b347c860f53be8dc615cf3f1a961928780e0bd0a93190223ed61ae5ef09f1d01c91c2ae92d217d862021f3cf
+BYPRODUCT=libandroidjni.a

@@ -1,0 +1,143 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#include "GUIComponent.h"
+
+#include "GUIAudioManager.h"
+#include "GUIColorManager.h"
+#include "GUIInfoManager.h"
+#include "GUILargeTextureManager.h"
+#include "GUITextureCallbackManager.h"
+#include "GUIWindowManager.h"
+#include "ServiceBroker.h"
+#include "StereoscopicsManager.h"
+#include "TextureManager.h"
+#include "URL.h"
+#include "dialogs/GUIDialogYesNo.h"
+#include "handlers/GUIAnnouncementHandlerContainer.h"
+
+#include <memory>
+
+CGUIComponent::CGUIComponent()
+  : m_pWindowManager(std::make_unique<CGUIWindowManager>()),
+    m_pTextureManager(std::make_unique<CGUITextureManager>()),
+    m_pLargeTextureManager(std::make_unique<CGUILargeTextureManager>()),
+    m_pTextureCallbackManager(std::make_unique<CGUITextureCallbackManager>()),
+    m_stereoscopicsManager(std::make_unique<CStereoscopicsManager>()),
+    m_guiInfoManager(std::make_unique<CGUIInfoManager>()),
+    m_guiColorManager(std::make_unique<CGUIColorManager>()),
+    m_guiAudioManager(std::make_unique<CGUIAudioManager>()),
+    m_announcementHandlerContainer(std::make_unique<CGUIAnnouncementHandlerContainer>())
+{
+}
+
+CGUIComponent::CGUIComponent(bool)
+{
+}
+
+CGUIComponent::~CGUIComponent()
+{
+  Deinit();
+}
+
+void CGUIComponent::Init()
+{
+  m_pWindowManager->Initialize();
+  m_stereoscopicsManager->Initialize();
+  m_guiInfoManager->Initialize();
+
+  CServiceBroker::RegisterGUI(this);
+}
+
+void CGUIComponent::Deinit()
+{
+  // must precede UnregisterGUI: window teardown releases textures through GetGUI()
+  if (m_pWindowManager)
+    m_pWindowManager->DeInitialize();
+
+  CServiceBroker::UnregisterGUI();
+
+  // Now safe to release skin - all windows deinitialized
+  m_skinInfo.reset();
+}
+
+CGUIWindowManager& CGUIComponent::GetWindowManager()
+{
+  return *m_pWindowManager;
+}
+
+CGUITextureManager& CGUIComponent::GetTextureManager()
+{
+  return *m_pTextureManager;
+}
+
+CGUILargeTextureManager& CGUIComponent::GetLargeTextureManager()
+{
+  return *m_pLargeTextureManager;
+}
+
+CGUITextureCallbackManager& CGUIComponent::GetTextureCallbackManager()
+{
+  return *m_pTextureCallbackManager;
+}
+
+CStereoscopicsManager &CGUIComponent::GetStereoscopicsManager()
+{
+  return *m_stereoscopicsManager;
+}
+
+CGUIInfoManager &CGUIComponent::GetInfoManager()
+{
+  return *m_guiInfoManager;
+}
+
+const CGUIInfoManager& CGUIComponent::GetInfoManager() const
+{
+  return *m_guiInfoManager;
+}
+
+CGUIColorManager &CGUIComponent::GetColorManager()
+{
+  return *m_guiColorManager;
+}
+
+CGUIAudioManager &CGUIComponent::GetAudioManager()
+{
+  return *m_guiAudioManager;
+}
+
+std::shared_ptr<ADDON::CSkinInfo> CGUIComponent::GetSkinInfo()
+{
+  return m_skinInfo;
+}
+
+void CGUIComponent::SetSkinInfo(std::shared_ptr<ADDON::CSkinInfo> skin)
+{
+  m_skinInfo = std::move(skin);
+}
+
+void CGUIComponent::UnloadSkin()
+{
+  m_skinInfo.reset();
+}
+
+bool CGUIComponent::ConfirmDelete(const std::string& path)
+{
+  CGUIDialogYesNo* pDialog = GetWindowManager().GetWindow<CGUIDialogYesNo>(WINDOW_DIALOG_YES_NO);
+  if (pDialog)
+  {
+    pDialog->SetHeading(CVariant{122});
+    pDialog->SetLine(0, CVariant{125});
+    pDialog->SetLine(1, CVariant{CURL(path).GetWithoutUserDetails()});
+    pDialog->SetLine(2, CVariant{""});
+    pDialog->Open();
+    if (pDialog->IsConfirmed())
+      return true;
+  }
+  return false;
+}

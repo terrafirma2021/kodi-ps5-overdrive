@@ -1,0 +1,41 @@
+From 49b892dec6fd2a4d2e6340765ef22ba7b9f34634 Mon Sep 17 00:00:00 2001
+From: PS5MC <ps5mc@localhost>
+Date: Thu, 8 Oct 2026 16:32:21 +0000
+Subject: [PATCH] ps5: skip binary image-decoder add-ons while the binary
+ add-on loader is unfinished
+
+FFmpeg decodes PNG/JPEG/GIF/WebP itself. Loading a binary add-on can still
+fault on the PS5, so an installed image-decoder add-on could otherwise break
+every image. Revisit once binary add-ons load (it would also enable decoders
+such as HEIF/RAW).
+---
+ xbmc/guilib/imagefactory.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/xbmc/guilib/imagefactory.cpp b/xbmc/guilib/imagefactory.cpp
+index 35528c604f..a537991069 100644
+--- a/xbmc/guilib/imagefactory.cpp
++++ b/xbmc/guilib/imagefactory.cpp
+@@ -37,6 +37,7 @@ IImage* ImageFactory::CreateLoader(const CURL& url)
+ 
+ IImage* ImageFactory::CreateLoaderFromMimeType(const std::string& strMimeType)
+ {
++#if !defined(TARGET_PS5)
+   auto addonInfos = CServiceBroker::GetExtsMimeSupportList().GetMimetypeSupportedAddonInfos(
+       strMimeType, CExtsMimeSupportList::FilterSelect::all);
+   for (const auto& addonInfo : addonInfos)
+@@ -54,6 +55,11 @@ IImage* ImageFactory::CreateLoaderFromMimeType(const std::string& strMimeType)
+     }
+     return result.release();
+   }
++#endif // !TARGET_PS5 : binary image-decoder add-ons are skipped on the PS5 while
++       // the in-process binary add-on loader is unfinished (loading a binary
++       // add-on can still fault there), so installing one cannot break every
++       // image. FFmpeg decodes PNG/JPEG/GIF/WebP. Revisit once binary add-ons
++       // load (it would also enable decoders such as HEIF/RAW).
+ 
+   return new CFFmpegImage(strMimeType);
+ }
+-- 
+2.43.0
+

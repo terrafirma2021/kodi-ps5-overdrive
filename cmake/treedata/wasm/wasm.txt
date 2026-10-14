@@ -1,0 +1,11 @@
+xbmc/cores/RetroPlayer/shaders/gles   cores/RetroPlayer/shaders/gles
+xbmc/input/touch                      input_touch
+xbmc/input/touch/generic              input_touch_generic
+xbmc/platform/common/speech           platform/common/speech
+xbmc/platform/posix                   platform/posix
+xbmc/platform/posix/filesystem        platform/posix/filesystem
+xbmc/platform/posix/threads           platform/posix/threads
+xbmc/platform/posix/utils             platform/posix/utils
+xbmc/platform/wasm                    platform/wasm
+xbmc/platform/wasm/network            platform/wasm/network
+xbmc/platform/wasm/storage            platform/wasm/storage

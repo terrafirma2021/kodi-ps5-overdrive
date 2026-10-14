@@ -1,0 +1,325 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#include "FileDirectoryFactory.h"
+
+#include "AudioBookFileDirectory.h"
+#include "Directory.h"
+#include "EpisodesDirectory.h"
+#include "FileItem.h"
+#if defined(HAS_ISO9660PP)
+#include "ISO9660Directory.h"
+#endif
+#include "PlaylistFileDirectory.h"
+#include "RSSDirectory.h"
+#include "ServiceBroker.h"
+#include "SmartPlaylistDirectory.h"
+#if defined(HAS_UDFREAD)
+#include "UDFDirectory.h"
+#endif
+#include "URL.h"
+#include "Util.h"
+#include "XbtDirectory.h"
+#include "ZipDirectory.h"
+#include "addons/AudioDecoder.h"
+#include "addons/ExtsMimeSupportList.h"
+#include "addons/VFSEntry.h"
+#include "addons/addoninfo/AddonInfo.h"
+#include "music/MusicDatabase.h"
+#include "music/MusicFileItemClassify.h"
+#if defined(TARGET_ANDROID)
+#include "platform/android/filesystem/APKDirectory.h"
+#endif
+#include "playlists/PlayListFactory.h"
+#include "playlists/SmartPlayList.h"
+#include "settings/MediaSourceSettings.h"
+#include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
+#include "utils/log.h"
+
+using namespace ADDON;
+using namespace KODI;
+using namespace KODI::ADDONS;
+using namespace XFILE;
+using namespace PLAYLIST;
+
+namespace
+{
+bool IsUnderMusicSource(const std::string& path)
+{
+  auto* sources = CMediaSourceSettings::GetInstance().GetSources("music");
+  if (!sources)
+    return false;
+  bool isSourceName = false;
+  return CUtil::GetMatchingSource(path, *sources, isSourceName) > -1;
+}
+
+/*!
+ * Return true if the file already has multiple chapter/song rows in the music DB
+ * (i.e. has been scanned by CAudioBookFileDirectory previously). Used to skip the
+ * FFmpeg probe in ContainsFiles() that otherwise stalls Play() for several seconds,
+ * especially over SMB/NFS.
+ */
+bool HasChaptersInMusicDb(const CURL& url)
+{
+  CMusicDatabase db;
+  if (!db.Open())
+    return false;
+
+  const std::string strPath = URIUtils::GetDirectory(url.Get());
+  const std::string strFileName = URIUtils::GetFileName(url.Get());
+
+  // PrepareSQL uses mprintf-style %s substitution that escapes single quotes
+  // (and other SQL metacharacters) safely, so apostrophes in paths or filenames
+  // are handled and there is no SQL injection surface here.
+  const std::string sql = db.PrepareSQL("SELECT COUNT(*) FROM song "
+                                        "JOIN path ON song.idPath = path.idPath "
+                                        "WHERE path.strPath = '%s' AND song.strFileName = '%s'",
+                                        strPath.c_str(), strFileName.c_str());
+
+  const int count = db.GetSingleValueInt(sql);
+  db.Close();
+  return count > 1;
+}
+} // namespace
+
+CFileDirectoryFactory::CFileDirectoryFactory(void) = default;
+
+CFileDirectoryFactory::~CFileDirectoryFactory(void) = default;
+
+// return NULL + set pItem->IsFolder() to remove it completely from list.
+IFileDirectory* CFileDirectoryFactory::Create(const CURL& url, CFileItem* pItem, const std::string& strMask)
+{
+  if (url.IsProtocol("stack")) // disqualify stack as we need to work with each of the parts instead
+    return NULL;
+
+  /**
+   * Check available binary addons which can contain files with underlaid
+   * folders / files.
+   * Currently in vfs and audiodecoder addons.
+   *
+   * @note The file extensions are absolutely necessary for these in order to
+   * identify the associated add-on.
+   */
+  /**@{*/
+
+  // Get file extensions to find addon related to it.
+  std::string strExtension = URIUtils::GetExtension(url);
+  StringUtils::ToLower(strExtension);
+
+  if (!strExtension.empty() && CServiceBroker::IsAddonInterfaceUp())
+  {
+    /*!
+     * Scan here about audiodecoder addons.
+     *
+     * @note: Do not check audio decoder files that are already open, they cannot
+     * contain any further sub-folders.
+     */
+    if (!StringUtils::EndsWith(strExtension, KODI_ADDON_AUDIODECODER_TRACK_EXT))
+    {
+      auto addonInfos = CServiceBroker::GetExtsMimeSupportList().GetExtensionSupportedAddonInfos(
+          strExtension, CExtsMimeSupportList::FilterSelect::hasTracks);
+      for (const auto& addonInfo : addonInfos)
+      {
+        std::unique_ptr<CAudioDecoder> result = std::make_unique<CAudioDecoder>(addonInfo.second);
+        if (!result->CreateDecoder() || !result->ContainsFiles(url))
+        {
+          CLog::LogF(LOGWARNING,
+                     "Addon '{}' support extension '{}' but creation failed (seems not supported), "
+                     "trying other addons and Kodi",
+                     addonInfo.second->ID(), strExtension);
+          continue;
+        }
+        return result.release();
+      }
+    }
+
+    /*!
+     * Scan here about VFS addons.
+     */
+    for (const auto& vfsAddon : CServiceBroker::GetVFSAddonCache().GetAddonInstances())
+    {
+      if (vfsAddon->HasFileDirectories())
+      {
+        auto exts = StringUtils::Split(vfsAddon->GetExtensions(), "|");
+        if (std::ranges::find(exts, strExtension) != exts.end())
+        {
+          CVFSEntryIFileDirectoryWrapper* wrap = new CVFSEntryIFileDirectoryWrapper(vfsAddon);
+          if (wrap->ContainsFiles(url))
+          {
+            // Paths returned may contain encoded urls but with capitals (eg. %2A rather than %2a)
+            // CURL will always use lower case for encoded chars, so we need to normalize here
+            // Otherwise there may be file/path mismatches later on
+            for (auto& item : wrap->GetItems())
+            {
+              CURL itemUrl{item->GetPath()};
+              if (URIUtils::HasParentInHostname(itemUrl))
+                item->SetPath(itemUrl.Get());
+            }
+
+            if (wrap->GetItems().Size() == 1)
+            {
+              // one STORED file - collapse it down
+              *pItem = *wrap->GetItems()[0];
+            }
+            else
+            {
+              // compressed or more than one file -> create a dir
+              pItem->SetPath(wrap->GetItems().GetPath());
+            }
+
+            // Check for folder, if yes return also wrap.
+            // Needed to fix for e.g. RAR files with only one file inside
+            pItem->SetFolder(URIUtils::HasSlashAtEnd(pItem->GetPath()));
+            if (pItem->IsFolder())
+              return wrap;
+          }
+          else
+          {
+            pItem->SetFolder(true);
+          }
+
+          delete wrap;
+          return nullptr;
+        }
+      }
+    }
+  }
+  /**@}*/
+
+  if (pItem->IsRSS())
+    return new CRSSDirectory();
+
+  if (url.IsProtocol("episodes"))
+    return new CEpisodesDirectory();
+
+  if (pItem->IsDiscImage())
+  {
+#if defined(HAS_ISO9660PP)
+    CISO9660Directory* iso = new CISO9660Directory();
+    if (iso->Exists(pItem->GetURL()))
+      return iso;
+
+    delete iso;
+#endif
+
+#if defined(HAS_UDFREAD)
+    return new CUDFDirectory();
+#endif
+
+    return nullptr;
+  }
+
+#if defined(TARGET_ANDROID)
+  if (url.IsFileType("apk"))
+  {
+    CURL zipURL = URIUtils::CreateArchivePath("apk", url);
+
+    CFileItemList items;
+    CDirectory::GetDirectory(zipURL, items, strMask, DIR_FLAG_DEFAULTS);
+    if (items.Size() == 0) // no files
+      pItem->SetFolder(true);
+    else if (items.Size() == 1 && items[0]->GetDepth() == 0 && !items[0]->IsFolder())
+    {
+      // one STORED file - collapse it down
+      *pItem = *items[0];
+    }
+    else
+    { // compressed or more than one file -> create a apk dir
+      pItem->SetURL(zipURL);
+      return new CAPKDirectory;
+    }
+    return NULL;
+  }
+#endif
+  if (url.IsFileType("zip"))
+  {
+    CURL zipURL = URIUtils::CreateArchivePath("zip", url);
+
+    CFileItemList items;
+    CDirectory::GetDirectory(zipURL, items, strMask, DIR_FLAG_DEFAULTS);
+    if (items.Size() == 0) // no files
+      pItem->SetFolder(true);
+    else if (items.Size() == 1 && items[0]->GetDepth() == 0 && !items[0]->IsFolder())
+    {
+      // one STORED file - collapse it down
+      *pItem = *items[0];
+    }
+    else
+    { // compressed or more than one file -> create a zip dir
+      pItem->SetURL(zipURL);
+      return new CZipDirectory;
+    }
+    return NULL;
+  }
+  if (url.IsFileType("xbt"))
+  {
+    CURL xbtUrl = URIUtils::CreateArchivePath("xbt", url);
+    pItem->SetURL(xbtUrl);
+
+    return new CXbtDirectory();
+  }
+  if (url.IsFileType("xsp"))
+  { // XBMC Smart playlist - just XML renamed to XSP
+    // read the name of the playlist in
+    CSmartPlaylist playlist;
+    if (playlist.OpenAndReadName(url))
+    {
+      pItem->SetLabel(playlist.GetName());
+      pItem->SetLabelPreformatted(true);
+    }
+    IFileDirectory* pDir=new CSmartPlaylistDirectory;
+    return pDir; // treat as directory
+  }
+  if (CPlayListFactory::IsPlaylist(url))
+  { // Playlist file
+    // currently we only return the directory if it contains
+    // more than one file.  Reason is that .pls and .m3u may be used
+    // for links to http streams etc.
+    IFileDirectory *pDir = new CPlaylistFileDirectory();
+    CFileItemList items;
+    if (pDir->GetDirectory(url, items))
+    {
+      if (items.Size() > 1)
+        return pDir;
+    }
+    delete pDir;
+    return NULL;
+  }
+
+  if (MUSIC::IsAudioBook(*pItem))
+  {
+    // .mkv doubles as a video container — only treat a chaptered .mkv as an
+    // audiobook when browsed from a Music source, or a chaptered movie in a
+    // Video source would be expanded into chapter items.
+    if (strExtension == ".mkv" && !IsUnderMusicSource(url.Get()))
+      return nullptr;
+
+    // Already-expanded chapter rows (have a music tag and a play range of their
+    // own) are going to return nullptr regardless, so skip the music-DB open for
+    // them and only consult the DB on the not-yet-expanded path where it gates
+    // the expensive FFmpeg ContainsFiles() probe.
+    //
+    // A last chapter nothing could close carries no end offset, so a positive end
+    // alone does not spot every expanded row: such a row is never the first, and
+    // so always carries a start.
+    const bool expandedRow =
+        pItem->HasMusicInfoTag() && (pItem->GetEndOffset() > 0 || pItem->GetStartOffset() > 0);
+    if (!expandedRow)
+    {
+      if (HasChaptersInMusicDb(url))
+        return nullptr;
+      auto pDir = std::make_unique<CAudioBookFileDirectory>();
+      if (pDir->ContainsFiles(url))
+        return pDir.release();
+    }
+    return nullptr;
+  }
+  return NULL;
+}
+

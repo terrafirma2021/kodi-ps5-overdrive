@@ -1,0 +1,133 @@
+--- a/nsswitch/libwbclient/wbc_pwd.c
++++ b/nsswitch/libwbclient/wbc_pwd.c
+@@ -46,7 +46,9 @@
+ 	struct passwd *pw = (struct passwd *)ptr;
+ 	free(pw->pw_name);
+ 	free(pw->pw_passwd);
++#if !defined(ANDROID) || !defined(pw_gecos)
+ 	free(pw->pw_gecos);
++#endif
+ 	free(pw->pw_shell);
+ 	free(pw->pw_dir);
+ }
+@@ -68,10 +70,12 @@
+ 	if (pw->pw_passwd == NULL) {
+ 		goto fail;
+ 	}
++#if !defined(ANDROID) || !defined(pw_gecos)
+ 	pw->pw_gecos = strdup(p->pw_gecos);
+ 	if (pw->pw_gecos == NULL) {
+ 		goto fail;
+ 	}
++#endif
+ 	pw->pw_shell = strdup(p->pw_shell);
+ 	if (pw->pw_shell == NULL) {
+ 		goto fail;
+--- a/third_party/heimdal/lib/base/json.c
++++ b/third_party/heimdal/lib/base/json.c
+@@ -41 +41 @@
+-#ifndef WIN32
++#if !defined(WIN32) && !defined(ANDROID)
+@@ -142 +142 @@
+-#ifndef WIN32
++#if !defined(WIN32) && !defined(ANDROID)
+@@ -151,8 +151,8 @@
+ int
+ heim_locale_is_utf8(void)
+ {
+-#ifdef WIN32
+-    return 0; /* XXX Implement */
++#if defined(WIN32) || defined(ANDROID)
++    return 0; /* XXX Implement */
+ #else
+     static int locale_is_utf8 = -1;
+     static heim_base_once_t once = HEIM_BASE_ONCE_INIT;
+--- a/source3/lib/dumpcore.c
++++ b/source3/lib/dumpcore.c
+@@ -323 +323 @@
+-	umask(~(0700));
++	umask(0077);
+--- a/source3/rpc_client/local_np.c
++++ b/source3/rpc_client/local_np.c
+@@ -336 +336,3 @@
+-	pid_t pid;
++#ifndef ANDROID
++	pid_t pid;
++#endif
+@@ -383,3 +385,7 @@
++#ifdef ANDROID
++	ret = ENOSYS;
++#else
+-	become_root();
+-	ret = posix_spawn(&pid, argv[0], NULL, NULL, argv, environ);
+-	unbecome_root();
++	become_root();
++	ret = posix_spawn(&pid, argv[0], NULL, NULL, argv, environ);
++	unbecome_root();
++#endif
+--- a/nsswitch/libwbclient/wbc_sid.c
++++ b/nsswitch/libwbclient/wbc_sid.c
+@@ -1054,9 +1054,13 @@
+ 
+ 		wbcFreeMemory(name);
+ 
++#if !defined(ANDROID) || !defined(pw_gecos)
+ 		name = wbcStrDup(pwd->pw_gecos);
++#endif
+ 		wbcFreeMemory(pwd);
++#if !defined(ANDROID) || !defined(pw_gecos)
+ 		BAIL_ON_PTR_ERROR(name, wbc_status);
++#endif
+ 	}
+ 
+ 	wbc_status = WBC_ERR_SUCCESS;
+--- a/nsswitch/winbind_struct_protocol.h
++++ b/nsswitch/winbind_struct_protocol.h
+@@ -188,6 +188,11 @@
+ 	WINBINDD_NUM_CMDS
+ };
+ 
++#if defined(ANDROID) && defined(pw_gecos)
++#define _pw_gecos pw_gecos
++#undef pw_gecos
++#endif
++
+ typedef struct winbindd_pw {
+ 	fstring pw_name;
+ 	fstring pw_passwd;
+@@ -198,6 +203,10 @@
+ 	fstring pw_shell;
+ } WINBINDD_PW;
+ 
++#if defined(ANDROID) && defined(_pw_gecos)
++#define pw_gecos _pw_gecos
++#undef _pw_gecos
++#endif
+ 
+ typedef struct winbindd_gr {
+ 	fstring gr_name;
+--- a/lib/util/overflow.h
++++ b/lib/util/overflow.h
+@@ -51,7 +51,20 @@
+ * @return True  pointer would over flow
+ *         False pointer would not overflow
+ */
++#if defined(__ANDROID__) && defined(__aarch64__)
++/*
++ * Android 11 and newer may tag heap pointers in the top byte. Such pointers
++ * are intentionally greater than INTPTR_MAX, so comparing them directly with
++ * INTPTR_MAX makes every non-zero offset look like an overflow. Ignore the
++ * top-byte tag when checking the address portion for overflow.
++ */
++#define ptr_overflow(ptr, offset, type) \
++	((uintptr_t)(offset) > \
++	 (((UINTPTR_MAX >> 8) - \
++	   ((uintptr_t)(ptr) & (UINTPTR_MAX >> 8))) / sizeof(type)))
++#else
+ #define ptr_overflow(ptr, offset, type) \
+-	offset_outside_range((ptr), ((type*)INTPTR_MAX), (offset))
++	offset_outside_range((ptr), ((type*)INTPTR_MAX), (offset))
++#endif
+-
++
+ #endif

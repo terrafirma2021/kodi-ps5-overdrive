@@ -1,0 +1,46 @@
+set(SOURCES AddonVideoCodec.cpp
+            DVDVideoCodec.cpp
+            DVDVideoCodecFFmpeg.cpp)
+
+set(HEADERS AddonVideoCodec.h
+            DVDVideoCodec.h
+            DVDVideoCodecFFmpeg.h
+            DVDVideoPP.h)
+
+if(TARGET ffmpeg::libpostproc)
+  list(APPEND SOURCES DVDVideoPPFFmpeg.cpp)
+  list(APPEND HEADERS DVDVideoPPFFmpeg.h)
+endif()
+
+if(CORE_SYSTEM_NAME STREQUAL windows OR CORE_SYSTEM_NAME STREQUAL windowsstore)
+  list(APPEND SOURCES DXVA.cpp)
+  list(APPEND HEADERS DXVA.h)
+endif()
+
+if(TARGET ${APP_NAME_LC}::VDPAU)
+  list(APPEND SOURCES VDPAU.cpp)
+  list(APPEND HEADERS VDPAU.h)
+endif()
+
+if(TARGET ${APP_NAME_LC}::VAAPI)
+  list(APPEND SOURCES VAAPI.cpp)
+  list(APPEND HEADERS VAAPI.h)
+endif()
+
+if(APPLE)
+  list(APPEND SOURCES VTB.cpp)
+  list(APPEND HEADERS VTB.h)
+endif()
+
+if(CORE_SYSTEM_NAME STREQUAL android)
+  list(APPEND SOURCES DVDVideoCodecAndroidMediaCodec.cpp)
+  list(APPEND HEADERS DVDVideoCodecAndroidMediaCodec.h)
+endif()
+
+if(("gbm" IN_LIST CORE_PLATFORM_NAME_LC OR "wayland" IN_LIST CORE_PLATFORM_NAME_LC) AND
+   TARGET ${APP_NAME_LC}::OpenGLES)
+  list(APPEND SOURCES DVDVideoCodecDRMPRIME.cpp)
+  list(APPEND HEADERS DVDVideoCodecDRMPRIME.h)
+endif()
+
+core_add_library(dvdvideocodecs)

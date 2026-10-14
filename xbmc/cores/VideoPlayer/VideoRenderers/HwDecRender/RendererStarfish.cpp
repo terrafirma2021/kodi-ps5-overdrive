@@ -1,0 +1,197 @@
+/*
+ *  Copyright (C) 2023 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#include "RendererStarfish.h"
+
+#include "../RenderFactory.h"
+#include "ServiceBroker.h"
+#include "rendering/gles/RenderSystemGLES.h"
+#include "settings/MediaSettings.h"
+#include "utils/log.h"
+#include "windowing/wayland/WinSystemWaylandWebOS.h"
+
+#include <appswitching-control-block/AcbAPI.h>
+
+CRendererStarfish::CRendererStarfish()
+{
+  CLog::LogF(LOGINFO, "Instanced");
+}
+
+CRendererStarfish::~CRendererStarfish()
+{
+  CServiceBroker::GetWinSystem()->GetGfxContext().SetTransferPQ(false);
+}
+
+CBaseRenderer* CRendererStarfish::Create(CVideoBuffer* buffer)
+{
+  if (buffer && dynamic_cast<CStarfishVideoBuffer*>(buffer))
+    return new CRendererStarfish();
+  return nullptr;
+}
+
+bool CRendererStarfish::Configure(const VideoPicture& picture,
+                                  float fps,
+                                  const unsigned int orientation)
+{
+  m_videoBuffer = static_cast<CStarfishVideoBuffer*>(picture.videoBuffer);
+  if (m_videoBuffer->GetAcbHandle())
+  {
+    EnableAlwaysClip();
+  }
+  m_iFlags = GetFlagsChromaPosition(picture.chroma_position) |
+             GetFlagsColorMatrix(picture.color_space, picture.iWidth, picture.iHeight) |
+             GetFlagsColorPrimaries(picture.color_primaries) |
+             GetFlagsStereoMode(picture.stereoMode);
+
+  m_format = picture.videoBuffer->GetFormat();
+  m_sourceWidth = picture.iWidth;
+  m_sourceHeight = picture.iHeight;
+  m_renderOrientation = orientation;
+
+  // Calculate the input frame aspect ratio.
+  CalculateFrameAspectRatio(picture.iDisplayWidth, picture.iDisplayHeight);
+  SetViewMode(m_videoSettings.m_ViewMode);
+  ManageRenderArea();
+
+  const bool transferPQ = CServiceBroker::GetWinSystem()->IsHDRDisplay() &&
+                          (picture.color_transfer == AVCOL_TRC_SMPTE2084 ||
+                           picture.hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION);
+  CServiceBroker::GetWinSystem()->GetGfxContext().SetTransferPQ(transferPQ);
+
+  m_configured = true;
+
+  return true;
+}
+
+bool CRendererStarfish::IsConfigured()
+{
+  return m_configured;
+}
+
+bool CRendererStarfish::ConfigChanged(const VideoPicture& picture)
+{
+  if (picture.videoBuffer->GetFormat() != m_format)
+  {
+    return true;
+  }
+
+  return false;
+}
+
+bool CRendererStarfish::Register()
+{
+  VIDEOPLAYER::CRendererFactory::RegisterRenderer("starfish", CRendererStarfish::Create);
+  return true;
+}
+
+void CRendererStarfish::ManageRenderArea()
+{
+  // this hack is needed to get the 2D mode of a 3D movie going
+  const RenderStereoMode stereoMode =
+      CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode();
+  if (stereoMode == RenderStereoMode::MONO)
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetStereoView(RenderStereoView::LEFT);
+
+  CBaseRenderer::ManageRenderArea();
+
+  if (stereoMode == RenderStereoMode::MONO)
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetStereoView(RenderStereoView::OFF);
+
+  switch (stereoMode)
+  {
+    case RenderStereoMode::SPLIT_HORIZONTAL:
+      m_destRect.y2 *= 2.0f;
+      break;
+    case RenderStereoMode::SPLIT_VERTICAL:
+      m_destRect.x2 *= 2.0f;
+      break;
+    default:
+      break;
+  }
+
+  if ((m_exportedDestRect != m_destRect || m_exportedSourceRect != m_sourceRect) &&
+      !m_sourceRect.IsEmpty() && !m_destRect.IsEmpty())
+  {
+    const auto origRect =
+        CRect{0, 0, static_cast<float>(m_sourceWidth), static_cast<float>(m_sourceHeight)};
+    using namespace KODI::WINDOWING::WAYLAND;
+    auto winSystem = static_cast<CWinSystemWaylandWebOS*>(CServiceBroker::GetWinSystem());
+    if (winSystem->SupportsExportedWindow())
+    {
+      winSystem->SetExportedWindow(origRect, m_sourceRect, m_destRect);
+    }
+    else if (m_videoBuffer->GetAcbHandle())
+    {
+      AcbAPI_setCustomDisplayWindow(
+          m_videoBuffer->GetAcbHandle()->Id(), static_cast<long>(m_sourceRect.x1),
+          static_cast<long>(m_sourceRect.y1), static_cast<long>(m_sourceRect.Width()),
+          static_cast<long>(m_sourceRect.Height()), static_cast<long>(m_destRect.x1),
+          static_cast<long>(m_destRect.y1), static_cast<long>(m_destRect.Width()),
+          static_cast<long>(m_destRect.Height()), false, &m_videoBuffer->GetAcbHandle()->TaskId());
+    }
+    m_exportedSourceRect = m_sourceRect;
+    m_exportedDestRect = m_destRect;
+  }
+}
+
+bool CRendererStarfish::Supports(const ERENDERFEATURE feature) const
+{
+  return (feature == RENDERFEATURE_ZOOM || feature == RENDERFEATURE_STRETCH ||
+          feature == RENDERFEATURE_PIXEL_RATIO || feature == RENDERFEATURE_VERTICAL_SHIFT ||
+          feature == RENDERFEATURE_ROTATION);
+}
+
+bool CRendererStarfish::Supports(ESCALINGMETHOD method) const
+{
+  return false;
+}
+
+bool CRendererStarfish::SupportsMultiPassRendering()
+{
+  return false;
+}
+
+void CRendererStarfish::AddVideoPicture(const VideoPicture& picture, int index)
+{
+}
+
+void CRendererStarfish::ReleaseBuffer(int idx)
+{
+}
+
+CRenderInfo CRendererStarfish::GetRenderInfo()
+{
+  CRenderInfo info;
+  info.max_buffer_size = 4;
+  return info;
+}
+
+bool CRendererStarfish::IsGuiLayer()
+{
+  return false;
+}
+
+void CRendererStarfish::UnInit()
+{
+  m_configured = false;
+}
+
+void CRendererStarfish::Update()
+{
+}
+
+void CRendererStarfish::RenderUpdate(
+    int index, int index2, bool clear, unsigned int flags, unsigned int alpha)
+{
+  if (!m_configured)
+  {
+    return;
+  }
+
+  ManageRenderArea();
+}

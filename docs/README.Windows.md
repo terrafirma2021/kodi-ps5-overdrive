@@ -1,0 +1,266 @@
+![Kodi Logo](resources/banner_slim.png)
+
+# Windows build guide
+This guide has been tested with Windows 11 Pro x64, version 25H2. Please read it in full before you proceed to familiarize yourself with the build procedure.
+
+## Table of Contents
+1. **[Document conventions](#1-document-conventions)**
+2. **[Prerequisites](#2-prerequisites)**
+3. **[Get the source code](#3-get-the-source-code)**
+4. **[Set up the build environment](#4-set-up-the-build-environment)**
+5. **[Build Kodi automagically](#5-build-kodi-automagically)**
+6. **[Build Kodi manually](#6-build-kodi-manually)**
+7. **[Build binary add-ons manually](#7-build-binary-add-ons-manually)**  
+  7.1. **[In-tree building of binary add-ons](#71-in-tree-building-of-binary-add-ons)**  
+
+## 1. Document conventions
+This guide assumes you are using `Developer Command Prompt for VS 2022` (or VS 2026), also known as `terminal`, `console`, `command-line` or simply `cli`. Commands need to be run at the terminal, one at a time and in the provided order.
+
+This is a comment that provides context:
+```
+this is a command
+this is another command
+and yet another one
+```
+
+**Example:** Clone Kodi's current master branch:
+```
+git clone https://github.com/xbmc/xbmc kodi
+```
+
+Commands that contain strings enclosed in angle brackets denote something you need to change to suit your needs.
+```
+git clone -b <branch-name> https://github.com/xbmc/xbmc kodi
+```
+
+**Example:** Clone Kodi's current Matrix branch:
+```
+git clone -b Matrix https://github.com/xbmc/xbmc kodi
+```
+
+Several different strategies are used to draw your attention to certain pieces of information. In order of how critical the information is, these items are marked as a note, tip, or warning. For example:
+
+> [!NOTE]  
+> Linux is user friendly... It's just very particular about who its friends are.
+
+> [!TIP]
+> Algorithm is what developers call code they do not want to explain.
+
+> [!WARNING]  
+> Developers don't change light bulbs. It's a hardware problem.
+
+**[back to top](#table-of-contents)** | **[back to section top](#1-document-conventions)**
+
+## 2. Prerequisites
+To build Kodi:
+* **Windows** 64bit OS, Windows 10 or above (allows build of x64, win32, ARM64 and UWP-64)
+* **[CMake](https://cmake.org/download/)** version 3.30.6 or greater for Visual Studio 2022, version 4.2 or greater for Visual Studio 2026 (or version 4.1.1-msvc included with the initial release)
+* **[Git for Windows](https://gitforwindows.org/)**
+* **[Java Development Kit (JDK)](https://www.oracle.com/java/technologies/downloads/)** current release of JDK 21 (JDK 8 still works though old)
+* **[Nullsoft scriptable install system (NSIS)](http://nsis.sourceforge.net/Download)** version 3.04 or greater (Only needed if you want to generate an installer file)
+* **[Visual Studio 2022](https://aka.ms/vs/17/release/vs_community.exe)** or **[Visual Studio 2026](https://visualstudio.microsoft.com/downloads/)** (Community Edition is fine)
+
+To run Kodi you need a relatively recent CPU with integrated GPU or discrete GPU with up-to-date graphics device-drivers installed from the manufacturer's website.
+* **[AMD](https://support.amd.com/en-us/download)**
+* **[Intel](https://downloadcenter.intel.com/product/80939/Graphics-Drivers)**
+* **[NVIDIA](http://www.nvidia.com/Download/index.aspx)**
+
+### CMake install notes
+All install screens should remain at their default values with the exception of the following.
+* Under **Install options** change default to `Add CMake to system PATH for all users` or `Add CMake to system PATH for current user` (whichever you prefer).
+
+### Git for Windows install notes
+All install screens should remain at their default values with the exception of the following two.
+* Under **Choosing the default editor used by Git** change default to `Use Notepad++ as Git's default editor` or your favorite editor.
+* Under **Adjust your PATH environment** change default to `Use Git and optional Unix tools from the Windows Command Prompt`.
+
+### JDK install notes
+Default options are fine.
+After the install finishes, add the file path to java's executables to your `PATH` **[environment variable](http://www.java.com/en/download/help/path.xml)**. Should be similar to `C:\Program Files\Java\jdk-21.0.10\bin`.
+Setting the `JAVA_HOME` environment variable may help in rare situations, information is available on the internet.
+
+### NSIS install notes
+Default options are fine.
+
+### Visual Studio 2022/2026 install notes
+Start the Visual Studio installer and click **Workloads** select
+* Under **Desktop & Mobile** section select
+  * `Desktop development with C++`
+    * Select the optional component: `Windows 11 SDK (10.0.22621.0)` (or higher version)
+  * `WinUI application development` (if compiling for UWP)
+    * Select the optional component: `Universal Windows Platform tools`
+    * Select the optional component:
+      * `C++ (v143) Universal Windows Platform tools` (VS 2022)
+      * `C++ Universal Windows Platform tools (Latest)` (VS 2026)
+
+Click in **Individual components**
+* Under **Compilers, build tools and runtimes** section select
+  * `MSVC v143 - VS 2022 C++ ARM64 build tools (Latest)` (if compiling the ARM64 desktop version with VS 2022)
+  * `MSVC Build Tools for ARM64/ARM64EC (Latest)` (if compiling the ARM64 desktop version with VS 2026)
+
+Hit `Install`. Yes, it will download and install almost 8GB of stuff for x64 only or up to 24GB if everything is selected for UWP / ARM64 as well.
+
+**[back to top](#table-of-contents)** | **[back to section top](#2-prerequisites)**
+
+## 3. Get the source code
+Change to your `home` directory:
+```
+cd %userprofile%
+```
+
+Clone Kodi's current master branch:
+```
+git clone https://github.com/xbmc/xbmc kodi
+```
+
+**[back to top](#table-of-contents)**
+
+## 4. Set up the build environment
+To set up the build environment, several scripts must be called.
+
+> [!WARNING]
+> The scripts may fail if you have a space in the path to the bat files.
+
+Kodi can be built as either a normal 64bit, 32bit or ARM64 program and UWP 64bit. Unless there is a reason to prefer 32bit builds, we advise you to build Kodi for 64bit.
+
+> [!TIP]
+> Look for comments starting with `Or ...` and only execute the command(s) you need.
+
+Change to the 64bit build directory (**recommended**):
+```
+cd %userprofile%\kodi\tools\buildsteps\windows\x64
+```
+
+Or change to the 32bit build directory:
+```
+cd %userprofile%\kodi\tools\buildsteps\windows\win32
+```
+
+Or change to the ARM 64bit build directory:
+```
+cd %userprofile%\kodi\tools\buildsteps\windows\arm64
+```
+
+Or change to the UWP 64bit build directory:
+```
+cd %userprofile%\kodi\tools\buildsteps\windows\x64-uwp
+```
+
+Download dependencies:
+```
+download-dependencies.bat
+```
+
+> [!TIP]
+> Look for the `All formed packages ready!` success message. If you see the message `ERROR: Not all formed packages are ready!`, execute the command again until you see the success message.
+
+Download and setup the build environment for libraries:
+```
+download-msys2.bat
+```
+
+**[back to top](#table-of-contents)** | **[back to section top](#4-set-up-the-build-environment)**
+
+## 5. Build Kodi automagically
+If all you want is to build a Kodi package ready to install, execute the command below and you're done. If you want to find out more about building, ignore this step and continue reading. Or execute the command below, grab some coffee and keep reading. Building takes a while anyway.
+
+Build a package ready to install:
+```
+BuildSetup.bat
+```
+
+*Normal* 32bit, 64bit and ARM 64bit builds generate an `exe` file ready to run, located at `%userprofile%\kodi\kodi-build\Debug` or `%userprofile%\kodi\kodi-build\Release`, depending on the build config. An installer `exe` file, located at `%userprofile%\kodi\project\Win32BuildSetup`, is also generated.
+
+UWP builds generate `msix`, `appxsym` and `cer` files, located at `%userprofile%\kodi\project\UWPBuildSetup`. You can install them following this **[guide](https://kodi.wiki/view/HOW-TO:Install_Kodi_for_Universal_Windows_Platform)**.
+
+> [!NOTE]  
+> To generate an exact replica of the official Kodi Windows installer, some additional steps are required:
+
+Build built-in binary add-ons (peripheral.joystick only) with command line:
+```
+make-addons.bat peripheral.joystick
+```
+
+Build the installer with the command line:
+```
+BuildSetup.bat nobinaryaddons clean
+```
+
+`BuildSetup.bat` without parameters also builds all the Kodi binary add-ons and is not necessary because they are not required to be included in the installer (except on Xbox) and the process is very time consuming.
+
+**[back to top](#table-of-contents)**
+
+## 6. Build Kodi manually
+Change to your `home` directory:
+```
+cd %userprofile%
+```
+
+Create an out-of-source build directory:
+```
+mkdir kodi-build
+```
+
+Change to build directory:
+```
+cd kodi-build
+```
+
+*Note:* For *Visual Studio 2026* substitute "Visual Studio 18 2026" for "Visual Studio 17 2022" below.
+
+Configure build for 64bit (**recommended**):
+```
+cmake -G "Visual Studio 17 2022" -A x64 %userprofile%\kodi
+```
+
+Or configure build for 32bit:
+```
+cmake -G "Visual Studio 17 2022" -A Win32 %userprofile%\kodi
+```
+
+Or configure build for ARM 64bit:
+```
+cmake -G "Visual Studio 17 2022" -A arm64 %userprofile%\kodi
+```
+
+Or configure build for UWP 64bit:
+```
+cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_SYSTEM_NAME=WindowsStore -DCMAKE_SYSTEM_VERSION=10.0 %userprofile%\kodi
+```
+
+Build Kodi:
+Build a `Debug` binary:
+```
+cmake --build . --config "Debug"
+```
+
+Or build a `Release` binary:
+```
+cmake --build . --config "Release"
+```
+
+*Normal* 32bit, 64bit and ARM 64bit builds generate an `exe` file ready to run, located at `%userprofile%\kodi-build\Debug` or `%userprofile%\kodi-build\Release`, depending on the build config.
+UWP builds generate `msix`, `appxsym` and `cer` files, located inside directories at `%userprofile%\kodi-build\AppPackages\kodi\`. You can install them following this **[guide](https://kodi.wiki/view/HOW-TO:Install_Kodi_for_Universal_Windows_Platform)**.
+
+**[back to top](#table-of-contents)** | **[back to section top](#6-build-kodi-manually)**
+
+## 7. Build binary add-ons manually
+You can find a complete list of available binary add-ons **[here](https://github.com/xbmc/repo-binary-addons)**.
+
+There are two approaches to build binary add-ons: _In-tree_ building that is automated, but doesn't support building from sources (forks, PRs, branches) other than the [Kodi binary addon repo](https://github.com/xbmc/repo-binary-addons), and _out-of-tree_ building that allows building from any source. Please refer to each add-on repository for out-of-tree build instructions.
+
+### 7.1. In-tree building of binary add-ons
+Change to the architecture platform you wish to build for (examples use x64):
+```
+cd %userprofile%\kodi\tools\buildsteps\windows\x64
+```
+Build specific add-on:
+```
+make-addons.bat package audioencoder.flac
+```
+Built files are under the folder `kodi\addons\<add-on name>`.
+
+Clean-up binary add-ons:
+```
+make-addons.bat clean
+```

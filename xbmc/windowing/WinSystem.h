@@ -1,0 +1,379 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#pragma once
+
+#include "HDRStatus.h"
+#include "OSScreenSaver.h"
+#include "Resolution.h"
+#include "VideoSync.h"
+#include "WinEvents.h"
+#include "cores/VideoPlayer/VideoRenderers/DebugInfo.h"
+#include "guilib/DirtyRegion.h"
+#include "guilib/DispResource.h"
+#include "utils/DisplayInfo.h"
+#include "utils/HDRCapabilities.h"
+
+#include <memory>
+#include <string>
+#include <vector>
+
+inline constexpr const char* OUTPUT_NAME_DEFAULT = "Default";
+
+struct RESOLUTION_WHR
+{
+  // user-defined ctor required for XCode 15.2 and emplace_back
+  RESOLUTION_WHR(int newWidth,
+                 int newHeight,
+                 int screenWidth,
+                 int screenHeight,
+                 int newflags,
+                 int newIdx,
+                 std::string&& newId);
+  int width;
+  int height;
+  int m_screenWidth;
+  int m_screenHeight;
+  int flags; //< only D3DPRESENTFLAG_MODEMASK flags
+  int ResInfo_Index;
+  std::string id;
+};
+
+struct REFRESHRATE
+{
+  float RefreshRate;
+  int   ResInfo_Index;
+};
+
+class CDPMSSupport;
+class CGraphicContext;
+class CRenderSystemBase;
+class IRenderLoop;
+class CVideoReferenceClock;
+
+struct VideoPicture;
+
+class CWinSystemBase
+{
+public:
+  CWinSystemBase();
+  virtual ~CWinSystemBase();
+
+  static std::unique_ptr<CWinSystemBase> CreateWinSystem();
+
+  // Access render system interface
+  virtual CRenderSystemBase *GetRenderSystem() { return nullptr; }
+
+  virtual const std::string GetName() { return "platform default"; }
+
+  // windowing interfaces
+  virtual bool InitWindowSystem();
+  virtual bool DestroyWindowSystem();
+  virtual bool CreateNewWindow(const std::string& name, bool fullScreen, RESOLUTION_INFO& res) = 0;
+  virtual bool DestroyWindow(){ return false; }
+  virtual bool ResizeWindow(int newWidth, int newHeight, int newLeft, int newTop) = 0;
+  virtual bool SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool blankOtherDisplays) = 0;
+  virtual void SetDirtyRegions(const CDirtyRegionList& dirtyRegionsList) {}
+  virtual int GetBufferAge() { return 2; }
+  //! \brief Bits per color channel of the presented output.
+  virtual int GetOutputBitDepth() const { return 8; }
+  virtual bool MoveWindow(int topLeft, int topRight){return false;}
+  virtual void FinishModeChange(RESOLUTION res){}
+  virtual void FinishWindowResize(int newWidth, int newHeight) {ResizeWindow(newWidth, newHeight, -1, -1);}
+  virtual bool CenterWindow(){return false;}
+  virtual bool IsCreated(){ return m_bWindowCreated; }
+  virtual void NotifyAppFocusChange(bool bGaining) {}
+  virtual void NotifyAppActiveChange(bool bActivated) {}
+  virtual void ShowOSMouse(bool show) {}
+  virtual bool HasCursor(){ return true; }
+  //some platforms have api for gesture inertial scrolling - default to false and use the InertialScrollingHandler
+  virtual bool HasInertialGestures(){ return false; }
+  //does the output expect limited color range (ie 16-235)
+  virtual bool UseLimitedColor();
+  //the number of presentation buffers
+  virtual int NoOfBuffers();
+
+  /*!
+   * \brief Forces the window to fullscreen provided the window resolution
+   * \param resInfo - the resolution info
+   */
+  virtual void ForceFullScreen(const RESOLUTION_INFO& resInfo) {}
+
+  /*!
+   * \brief Get average display latency
+   *
+   * The latency should be measured as the time between finishing the rendering
+   * of a frame, i.e. calling PresentRender, and the rendered content becoming
+   * visible on the screen.
+   *
+   * \return average display latency in seconds, or negative value if unknown
+   */
+  virtual float GetDisplayLatency() { return -1.0f; }
+
+  /*!
+   * \brief Get time that should be subtracted from the display latency for this frame
+   * in milliseconds
+   *
+   * Contrary to \ref GetDisplayLatency, this value is calculated ad-hoc
+   * for the frame currently being rendered and not a value that is calculated/
+   * averaged from past frames and their presentation times
+   */
+  virtual float GetFrameLatencyAdjustment() { return 0.0; }
+
+  virtual bool Minimize() { return false; }
+  virtual bool Restore() { return false; }
+  virtual bool Hide() { return false; }
+  virtual bool Show(bool raise = true) { return false; }
+
+  // videosync
+  virtual std::unique_ptr<CVideoSync> GetVideoSync(CVideoReferenceClock* clock) { return nullptr; }
+
+  // notifications
+  virtual void OnMove(int x, int y) {}
+
+  /*!
+   * \brief Get the screen ID provided the screen name
+   *
+   * \param screen the name of the screen as presented on the application display settings
+   * \return the screen index as known by the windowing system implementation (or the default screen by default)
+   */
+  virtual unsigned int GetScreenId(const std::string& screen) { return 0; }
+
+  /*!
+   * \brief Window was requested to move to the given screen
+   *
+   * \param screenIdx the screen index as known by the windowing system implementation
+   */
+  virtual void MoveToScreen(unsigned int screenIdx) {}
+
+  /*!
+   * \brief Used to signal the windowing system about the change of the current screen
+   *
+   * \param screenIdx the screen index as known by the windowing system implementation
+   */
+  virtual void OnChangeScreen(unsigned int screenIdx) {}
+
+  // OS System screensaver
+  /*!
+   * \brief Get OS screen saver inhibit implementation if available
+   *
+   * \return OS screen saver implementation that can be used with this windowing system
+   *         or nullptr if unsupported.
+   *         Lifetime of the returned object will usually end with \ref DestroyWindowSystem, so
+   *         do not use any more after calling that.
+   */
+  KODI::WINDOWING::COSScreenSaverManager* GetOSScreenSaver();
+
+  // resolution interfaces
+  unsigned int GetWidth() { return m_nWidth; }
+  unsigned int GetHeight() { return m_nHeight; }
+  virtual bool CanDoWindowed() { return true; }
+  bool IsFullScreen() { return m_bFullScreen; }
+
+  /*!
+   * \brief Check if the windowing system supports moving windows across screens
+   *
+   * \return true if the windowing system supports moving windows across screens, false otherwise
+   */
+  virtual bool SupportsScreenMove() { return true; }
+
+  virtual void UpdateResolutions();
+  void SetWindowResolution(int width, int height);
+  std::vector<RESOLUTION_WHR> ScreenResolutions(float refreshrate);
+  std::vector<REFRESHRATE> RefreshRates(int width, int height, uint32_t dwFlags);
+  REFRESHRATE DefaultRefreshRate(const std::vector<REFRESHRATE>& rates);
+  virtual bool HasCalibration(const RESOLUTION_INFO& resInfo) { return true; }
+
+  // text input interface
+  virtual std::string GetClipboardText(void);
+
+  // Display event callback
+  virtual void Register(IDispResource *resource) = 0;
+  virtual void Unregister(IDispResource *resource) = 0;
+
+  // render loop
+  void RegisterRenderLoop(IRenderLoop *client);
+  void UnregisterRenderLoop(IRenderLoop *client);
+  void DriveRenderLoop();
+
+  // winsystem events
+  virtual bool MessagePump() { return false; }
+
+  // Access render system interface
+  virtual CGraphicContext& GetGfxContext() const;
+
+  /*!
+   * \brief Get OS specific hardware context
+   *
+   * \return OS specific context or nullptr if OS not have
+   *
+   * \note This function is currently only related to Windows with DirectX,
+   * all other OS where use GL returns nullptr.
+   * Returned Windows class pointer is ID3D11DeviceContext1.
+   */
+  virtual void* GetHWContext() { return nullptr; }
+
+  std::shared_ptr<CDPMSSupport> GetDPMSManager();
+
+  /*!
+   * \brief Signal the role of the output surface: video playback or idle GUI.
+   *
+   * Called by video renderers at Configure (with videoPicture) and at UnInit
+   * (nullptr). On platforms with a flip-flop plane-role model (single-plane
+   * GBM), implementations adopt the output plane as the video plane while
+   * a video is playing and revert it to the gui plane on disable. Returns
+   * true if the role transition was applied.
+   */
+  virtual bool SetVideoOutput(const VideoPicture* videoPicture) { return false; }
+
+  /*!
+   * \brief Set colorimetry (BT.709, BT.2020, etc). Passing nullptr as the
+   * parameter resets to "Default" (display then decides based on rez)
+   *
+   */
+  virtual void SetColorimetry(const VideoPicture* videoPicture) {}
+
+  /*!
+   * \brief Set the HDR metadata. Passing nullptr as the parameter should
+   * disable HDR.
+   *
+   */
+  virtual bool SetHDR(const VideoPicture* videoPicture) { return false; }
+  virtual bool IsHDRDisplay() { return false; }
+  virtual HDR_STATUS ToggleHDR() { return HDR_STATUS::HDR_UNSUPPORTED; }
+  virtual HDR_STATUS GetOSHDRStatus() { return HDR_STATUS::HDR_UNSUPPORTED; }
+  virtual CHDRCapabilities GetDisplayHDRCapabilities() const { return {}; }
+  virtual KODI::UTILS::Eotf GetEotf() const { return KODI::UTILS::Eotf::TRADITIONAL_SDR; }
+  virtual KODI::UTILS::Colorimetry GetColorimetry() const
+  {
+    return KODI::UTILS::Colorimetry::DEFAULT;
+  }
+  static const char* SETTING_WINSYSTEM_IS_HDR_DISPLAY;
+  virtual float GetGuiSdrPeakLuminance() const { return .0f; }
+  virtual bool HasSystemSdrPeakLuminance() { return false; }
+
+  /*!
+   * \brief System supports Video Super Resolution HW upscaler i.e.:
+   * "NVIDIA RTX Video Super Resolution" or "Intel Video Super Resolution"
+   *
+   */
+  virtual bool SupportsVideoSuperResolution() { return false; }
+
+  // GUI compositing for HDR: render GUI to FBO, composite with tone mapping
+  // colorTransfer: AVCOL_TRC_SMPTE2084 (PQ) or AVCOL_TRC_ARIB_STD_B67 (HLG), 0 to disable
+  virtual bool SetGuiCompositing(int colorTransfer) { return false; }
+  // guiWillRender: hint that GUI rendering is about to fire this frame.
+  // When false, implementations should skip FBO bind/clear since no GUI
+  // draws will land in the FBO this frame.
+  virtual bool BeginGuiComposite(bool guiWillRender) { return false; }
+  virtual void EndGuiComposite() {}
+  virtual void CompositeGui() {}
+
+  // True when GUI is rendered to an FBO that is then color-transformed
+  // (sRGB -> PQ/HLG) and composited against HDR video in that non-linear
+  // space. Alpha blending assumes linear light; blending non-linear values
+  // yields wrong transparency. When true, GUI draws select a compensated
+  // alpha blend (see CGUIFontTTFGLES::FirstBegin).
+  virtual bool IsHdrComposite() const { return false; }
+
+  /*!
+   * \brief Gets debug info from video renderer for use in "Debug Info OSD" (Alt + O)
+   *
+   */
+  virtual DEBUG_INFO_RENDER GetDebugInfo() { return {}; }
+
+  virtual std::vector<std::string> GetConnectedOutputs() { return {}; }
+
+  /*!
+    * \brief Returns the number of physical monitors/outputs.
+    *
+    * Every backend's GetConnectedOutputs() includes OUTPUT_NAME_DEFAULT as
+    * the first entry; this is a placeholder (not a physical display) that
+    * means "let the system choose". This method excludes that placeholder
+    * from the count.
+    *
+    * \return Number of physical monitors/outputs.
+    */
+  virtual size_t GetPhysicalOutputCount()
+  {
+    const auto outputs = GetConnectedOutputs();
+    return (!outputs.empty() && outputs[0] == OUTPUT_NAME_DEFAULT) ? outputs.size() - 1
+                                                                   : outputs.size();
+  }
+
+  /*!
+   * \brief Return true when HDR display is available and enabled in settings
+   *
+   */
+  bool IsHDRDisplaySettingEnabled();
+
+  /*!
+   * \brief Return true when "Video Super Resolution" is supported and enabled in settings
+   *
+   */
+  bool IsVideoSuperResolutionSettingEnabled();
+
+  /*!
+   * \brief Return true when setting "High Precision Processing" is enabled
+   *
+   */
+  bool IsHighPrecisionProcessingSettingEnabled();
+
+  /*!
+   * \brief Get dither settings
+   *
+   * \return std::pair containing dither enabled (bool) and dither depth (int)
+   */
+  std::pair<bool, int> GetDitherSettings();
+
+  /*!
+   * \brief Binds a shared context to the current thread, in order to upload textures asynchronously.
+   * \return Return true if a texture upload context exists and the binding succeeds.
+   */
+  virtual bool BindTextureUploadContext() { return false; }
+
+  /*!
+   * \brief Unbinds the shared context.
+   * \return Return true if the texture upload context has been unbound.
+   */
+  virtual bool UnbindTextureUploadContext() { return false; }
+
+  /*!
+   * \brief Checks if a graphics context is already bound to the current thread.
+   * \return Return true if so.
+   */
+  virtual bool HasContext() { return false; }
+
+protected:
+  void UpdateDesktopResolution(RESOLUTION_INFO& newRes, const std::string &output, int width, int height, float refreshRate, uint32_t dwFlags);
+  void UpdateDesktopResolution(RESOLUTION_INFO& newRes,
+                               const std::string& output,
+                               int width,
+                               int height,
+                               int screenWidth,
+                               int screenHeight,
+                               float refreshRate,
+                               uint32_t dwFlags);
+  virtual std::unique_ptr<KODI::WINDOWING::IOSScreenSaver> GetOSScreenSaverImpl() { return nullptr; }
+
+  int m_nWidth = 0;
+  int m_nHeight = 0;
+  int m_nTop = 0;
+  int m_nLeft = 0;
+  bool m_bWindowCreated = false;
+  bool m_bFullScreen = false;
+  bool m_bBlankOtherDisplay = false;
+  float m_fRefreshRate = 0.0f;
+  std::unique_ptr<KODI::WINDOWING::COSScreenSaverManager> m_screenSaverManager;
+  CCriticalSection m_renderLoopSection;
+  std::vector<IRenderLoop*> m_renderLoopClients;
+
+  std::unique_ptr<IWinEvents> m_winEvents;
+  std::unique_ptr<CGraphicContext> m_gfxContext;
+  std::shared_ptr<CDPMSSupport> m_dpms;
+};

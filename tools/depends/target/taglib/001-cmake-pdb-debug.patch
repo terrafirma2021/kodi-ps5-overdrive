@@ -1,0 +1,25 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -119,6 +119,7 @@
+ endif()
+ 
+ if(WIN32)
++  set(CMAKE_DEBUG_POSTFIX "d")
+   configure_file("${CMAKE_CURRENT_SOURCE_DIR}/taglib-config.cmd.cmake" "${CMAKE_CURRENT_BINARY_DIR}/taglib-config.cmd")
+   install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/taglib-config.cmd" DESTINATION "${CMAKE_INSTALL_BINDIR}"
+           RENAME "taglib${TAGLIB_INSTALL_SUFFIX}-config.cmd")
+--- a/taglib/CMakeLists.txt
++++ b/taglib/CMakeLists.txt
+@@ -350,6 +350,12 @@
+   PRIVATE $<IF:$<TARGET_EXISTS:utf8::cpp>,utf8::cpp,$<$<TARGET_EXISTS:utf8cpp>:utf8cpp>>
+           $<$<TARGET_EXISTS:ZLIB::ZLIB>:ZLIB::ZLIB>
+ )
++
++if(MSVC)
++  set_target_properties(tag PROPERTIES COMPILE_PDB_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR} COMPILE_PDB_NAME tag COMPILE_PDB_NAME_DEBUG tagd)
++  install(FILES ${PROJECT_BINARY_DIR}/RelWithDebInfo/tag.pdb DESTINATION lib CONFIGURATIONS RelWithDebInfo)
++  install(FILES ${PROJECT_BINARY_DIR}/Debug/tagd.pdb DESTINATION lib CONFIGURATIONS Debug)
++endif(MSVC)
+ 
+ set_target_properties(tag PROPERTIES
+   VERSION ${TAGLIB_SOVERSION_MAJOR}.${TAGLIB_SOVERSION_MINOR}.${TAGLIB_SOVERSION_PATCH}

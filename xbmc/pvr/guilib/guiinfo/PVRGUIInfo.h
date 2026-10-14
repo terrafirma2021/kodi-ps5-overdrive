@@ -1,0 +1,233 @@
+/*
+ *  Copyright (C) 2012-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#pragma once
+
+#include "XBDateTime.h"
+#include "guilib/guiinfo/GUIInfoProvider.h"
+#include "powermanagement/PowerState.h"
+#include "pvr/PVRDescrambleInfo.h"
+#include "pvr/PVRSignalStatus.h"
+#include "pvr/addons/PVRClients.h"
+#include "pvr/guilib/guiinfo/PVRGUITimerInfo.h"
+#include "pvr/guilib/guiinfo/PVRGUITimesInfo.h"
+#include "threads/CriticalSection.h"
+#include "threads/Thread.h"
+
+#include <atomic>
+#include <map>
+#include <memory>
+#include <string>
+#include <tuple>
+#include <vector>
+
+class CFileItem;
+
+namespace KODI::GUILIB::GUIINFO
+{
+class CGUIInfo;
+}
+
+namespace PVR
+{
+class CPVREpgInfoTag;
+
+class CPVRGUIInfo : public KODI::GUILIB::GUIINFO::CGUIInfoProvider,
+                    private CThread,
+                    public CPowerState
+{
+public:
+  CPVRGUIInfo();
+  ~CPVRGUIInfo() override = default;
+
+  void Start();
+  void Stop();
+
+  /*!
+   * @brief Propagate event on system sleep
+   */
+  void OnSleep() override;
+
+  /*!
+   * @brief Propagate event on system wake
+   */
+  void OnWake() override;
+
+  // KODI::GUILIB::GUIINFO::IGUIInfoProvider implementation
+  bool InitCurrentItem(CFileItem* item) override;
+  bool GetLabel(std::string& value,
+                const CFileItem* item,
+                int contextWindow,
+                const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                std::string* fallback) const override;
+  bool GetFallbackLabel(std::string& value,
+                        const CFileItem* item,
+                        int contextWindow,
+                        const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                        std::string* fallback) override;
+  bool GetInt(int& value,
+              const CGUIListItem* item,
+              int contextWindow,
+              const KODI::GUILIB::GUIINFO::CGUIInfo& info) const override;
+  bool GetBool(bool& value,
+               const CGUIListItem* item,
+               int contextWindow,
+               const KODI::GUILIB::GUIINFO::CGUIInfo& info) const override;
+
+private:
+  void ResetProperties();
+  void ClearQualityInfo(CPVRSignalStatus& qualityInfo) const;
+  void ClearDescrambleInfo(CPVRDescrambleInfo& descrambleInfo) const;
+
+  void Process() override;
+
+  void UpdateTimersCache();
+  void UpdateBackendCache();
+  void UpdateQualityData();
+  void UpdateDescrambleData();
+  void UpdateMisc();
+  void UpdateNextTimer();
+  void UpdateTimeshiftData();
+  void UpdateTimeshiftProgressData();
+  void UpdatePlayableCache();
+
+  void UpdateTimersToggle();
+
+  /*!
+   * @brief Get whether the given EPG tag is playable, from the playability cache.
+   * @param tag The EPG tag.
+   * @return True if the tag is playable, false otherwise.
+   */
+  bool IsPlayable(const std::shared_ptr<const CPVREpgInfoTag>& tag) const;
+
+  bool GetListItemAndPlayerLabel(const CFileItem* item,
+                                 const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                                 std::string& strValue) const;
+  bool GetPVRLabel(const CFileItem* item,
+                   const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                   std::string& strValue) const;
+  bool GetRadioRDSLabel(const CFileItem* item,
+                        const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                        std::string& strValue) const;
+
+  bool GetListItemAndPlayerInt(const CFileItem* item,
+                               const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                               int& iValue) const;
+  bool GetPVRInt(const CFileItem* item,
+                 const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                 int& iValue) const;
+  int GetTimeShiftSeekPercent() const;
+
+  bool GetListItemAndPlayerBool(const CFileItem* item,
+                                const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                                bool& bValue) const;
+  bool GetPVRBool(const KODI::GUILIB::GUIINFO::CGUIInfo& info, bool& bValue) const;
+  bool GetRadioRDSBool(const CFileItem* item,
+                       const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                       bool& bValue) const;
+
+  void CharInfoBackendNumber(std::string& strValue) const;
+  void CharInfoTotalDiskSpace(std::string& strValue) const;
+  void CharInfoSignal(std::string& strValue) const;
+  void CharInfoSNR(std::string& strValue) const;
+  void CharInfoBER(std::string& strValue) const;
+  void CharInfoUNC(std::string& strValue) const;
+  void CharInfoFrontendName(std::string& strValue) const;
+  void CharInfoFrontendStatus(std::string& strValue) const;
+  void CharInfoClientName(std::string& strValue) const;
+  void CharInfoInstanceName(std::string& strValue) const;
+  void CharInfoBackendName(std::string& strValue) const;
+  void CharInfoBackendVersion(std::string& strValue) const;
+  void CharInfoBackendHost(std::string& strValue) const;
+  void CharInfoBackendDiskspace(std::string& strValue) const;
+  void CharInfoBackendProviders(std::string& strValue) const;
+  void CharInfoBackendChannelGroups(std::string& strValue) const;
+  void CharInfoBackendChannels(std::string& strValue) const;
+  void CharInfoBackendTimers(std::string& strValue) const;
+  void CharInfoBackendRecordings(std::string& strValue) const;
+  void CharInfoBackendDeletedRecordings(std::string& strValue) const;
+  void CharInfoPlayingClientName(std::string& strValue) const;
+  void CharInfoEncryption(std::string& strValue) const;
+  void CharInfoService(std::string& strValue) const;
+  void CharInfoMux(std::string& strValue) const;
+  void CharInfoProvider(std::string& strValue) const;
+
+  /** @name PVRGUIInfo data */
+  //@{
+  CPVRGUIAnyTimerInfo m_anyTimersInfo; // tv + radio
+  CPVRGUITVTimerInfo m_tvTimersInfo;
+  CPVRGUIRadioTimerInfo m_radioTimersInfo;
+
+  CPVRGUITimesInfo m_timesInfo;
+
+  bool m_bHasTVRecordings;
+  bool m_bHasRadioRecordings;
+  unsigned int m_iCurrentActiveClient;
+  std::string m_strPlayingClientName;
+  std::string m_strClientName;
+  std::string m_strInstanceName;
+  std::string m_strBackendName;
+  std::string m_strBackendVersion;
+  std::string m_strBackendHost;
+  std::string m_strBackendTimers;
+  std::string m_strBackendRecordings;
+  std::string m_strBackendDeletedRecordings;
+  std::string m_strBackendProviders;
+  std::string m_strBackendChannelGroups;
+  std::string m_strBackendChannels;
+  long long m_iBackendDiskTotal;
+  long long m_iBackendDiskUsed;
+  bool m_bIsPlayingTV;
+  bool m_bIsPlayingRadio;
+  bool m_bIsPlayingRecording;
+  bool m_bIsPlayingEpgTag;
+  bool m_bIsPlayingEncryptedStream;
+  bool m_bHasTVChannels;
+  bool m_bHasRadioChannels;
+  bool m_bCanRecordPlayingChannel;
+  bool m_bIsRecordingPlayingChannel;
+  bool m_bIsPlayingActiveRecording;
+  std::string m_strPlayingTVGroup;
+  std::string m_strPlayingRadioGroup;
+
+  //@}
+
+  CPVRSignalStatus m_qualityInfo; /*!< stream quality information */
+  CPVRDescrambleInfo m_descrambleInfo; /*!< stream descramble information */
+  std::vector<SBackendProperties> m_backendProperties;
+
+  std::string m_channelNumberInput;
+  bool m_previewAndPlayerShowInfo{false};
+
+  /*!
+   * @brief Identity of an EPG tag for the playability cache. Contains the tag's time
+   * boundaries as well as its ids, so that a tag whose times were changed does not match
+   * the answer cached for its previous times.
+   */
+  using PlayableCacheKey = std::tuple<int, unsigned int, CDateTime, CDateTime>;
+
+  struct PlayableCacheEntry
+  {
+    std::shared_ptr<const CPVREpgInfoTag> tag;
+    bool playable{false};
+    bool queried{true}; /*!< whether the value was read since the last cache update */
+  };
+
+  mutable std::map<PlayableCacheKey, PlayableCacheEntry> m_playableCache;
+
+  mutable CCriticalSection m_critSection;
+
+  /**
+   * The various backend-related fields will only be updated when this
+   * flag is set. This is done to limit the amount of unnecessary
+   * backend querying when we're not displaying any of the queried
+   * information.
+   */
+  mutable std::atomic<bool> m_updateBackendCacheRequested;
+};
+} // namespace PVR

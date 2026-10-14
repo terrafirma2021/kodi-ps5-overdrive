@@ -1,0 +1,85 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#include "RenderBufferPoolOpenGLES.h"
+
+#include "RenderBufferOpenGLES.h"
+#include "cores/RetroPlayer/rendering/RenderVideoSettings.h"
+#include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererOpenGLES.h"
+#include "rendering/GLExtensions.h"
+#include "utils/GLUtils.h"
+
+using namespace KODI;
+using namespace RETRO;
+
+CRenderBufferPoolOpenGLES::CRenderBufferPoolOpenGLES(bool supportsTextureSwizzle)
+  : m_supportsTextureSwizzle(supportsTextureSwizzle)
+{
+}
+
+bool CRenderBufferPoolOpenGLES::IsCompatible(const CRenderVideoSettings& renderSettings) const
+{
+  return CRPRendererOpenGLES::SupportsScalingMethod(renderSettings.GetScalingMethod());
+}
+
+IRenderBuffer* CRenderBufferPoolOpenGLES::CreateRenderBuffer(void* header /* = nullptr */)
+{
+  return new CRenderBufferOpenGLES(m_pixelType, m_internalFormat, m_pixelFormat, m_bpp,
+                                   m_supportsTextureSwizzle);
+}
+
+bool CRenderBufferPoolOpenGLES::ConfigureInternal()
+{
+  // Configure CRenderBufferPoolOpenGLES
+  switch (m_format)
+  {
+    case AV_PIX_FMT_0RGB32:
+    {
+      m_pixelType = GL_UNSIGNED_BYTE;
+      if (m_supportsTextureSwizzle)
+      {
+        // Use core RGBA storage; advertised BGRA support can still sample black.
+        m_internalFormat = GL_RGBA;
+        m_pixelFormat = GL_RGBA;
+      }
+      else if (CGLExtensions::IsExtensionSupported(CGLExtensions::EXT_texture_format_BGRA8888) ||
+               CGLExtensions::IsExtensionSupported(CGLExtensions::IMG_texture_format_BGRA8888))
+      {
+        m_internalFormat = GL_BGRA_EXT;
+        m_pixelFormat = GL_BGRA_EXT;
+      }
+      else if (CGLExtensions::IsExtensionSupported(CGLExtensions::APPLE_texture_format_BGRA8888))
+      {
+        // Apple's implementation does not conform to spec. Instead, they require
+        // differing format/internalformat, more like GL.
+        m_internalFormat = GL_RGBA;
+        m_pixelFormat = GL_BGRA_EXT;
+      }
+      else
+      {
+        m_internalFormat = GL_RGBA;
+        m_pixelFormat = GL_RGBA;
+      }
+      m_bpp = sizeof(uint32_t);
+      return true;
+    }
+    case AV_PIX_FMT_RGB555:
+    case AV_PIX_FMT_RGB565:
+    {
+      m_pixelType = GL_UNSIGNED_SHORT_5_6_5;
+      m_internalFormat = GL_RGB;
+      m_pixelFormat = GL_RGB;
+      m_bpp = sizeof(uint16_t);
+      return true;
+    }
+    default:
+      break;
+  }
+
+  return false;
+}

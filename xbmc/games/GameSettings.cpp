@@ -1,0 +1,356 @@
+/*
+ *  Copyright (C) 2012-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#include "GameSettings.h"
+
+#include "ServiceBroker.h"
+#include "URL.h"
+#include "events/EventLog.h"
+#include "events/NotificationEvent.h"
+#include "filesystem/CurlFile.h"
+#include "filesystem/File.h"
+#include "games/AchievementRuntime.h"
+#include "games/GameServices.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
+#include "guilib/WindowIDs.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+#include "settings/lib/Setting.h"
+#include "utils/JSONVariantParser.h"
+#include "utils/StringUtils.h"
+#include "utils/SystemInfo.h"
+#include "utils/Variant.h"
+#include "utils/log.h"
+
+#include <algorithm>
+#include <vector>
+
+using namespace KODI;
+using namespace GAME;
+
+namespace
+{
+const std::string SETTING_GAMES_ENABLE = "gamesgeneral.enable";
+const std::string SETTING_GAMES_SHOW_OSD_HELP = "gamesgeneral.showosdhelp";
+const std::string SETTING_GAMES_ENABLEAUTOSAVE = "gamesgeneral.enableautosave";
+const std::string SETTING_GAMES_ENABLEREWIND = "gamesgeneral.enablerewind";
+const std::string SETTING_GAMES_REWINDTIME = "gamesgeneral.rewindtime";
+const std::string SETTING_GAMES_ACHIEVEMENTS_CREATE_ACCOUNT = "gamesachievements.createaccount";
+const std::string SETTING_GAMES_ACHIEVEMENTS_USERNAME = "gamesachievements.username";
+const std::string SETTING_GAMES_ACHIEVEMENTS_PASSWORD = "gamesachievements.password";
+const std::string SETTING_GAMES_ACHIEVEMENTS_TOKEN = "gamesachievements.token";
+const std::string SETTING_GAMES_ACHIEVEMENTS_ENCORE = "gamesachievements.encore";
+const std::string SETTING_GAMES_ACHIEVEMENTS_INDICATOR = "gamesachievements.challengeindicator";
+const std::string SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN = "gamesachievements.loggedin";
+
+constexpr auto LOGIN_TO_RETRO_ACHIEVEMENTS_URL =
+    "https://retroachievements.org/dorequest.php?r=login2";
+
+// Lightweight authenticated endpoint that confirms the token is valid without
+// needing a game ID.
+constexpr auto VERIFY_ACCOUNT_URL_TEMPLATE =
+    "https://retroachievements.org/dorequest.php?r=getusersummary&u={}&t={}&a=1";
+
+// The API returns the avatar as the relative path "/UserPic/<username>.png".
+constexpr auto RA_USER_PIC_URL_TEMPLATE = "https://i.retroachievements.org/UserPic/{}.png";
+
+constexpr auto SUCCESS = "Success";
+constexpr auto TOKEN = "Token";
+} // namespace
+
+CGameSettings::CGameSettings()
+{
+  m_settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+
+  m_settings->RegisterCallback(
+      this, {SETTING_GAMES_ENABLEREWIND, SETTING_GAMES_REWINDTIME,
+             SETTING_GAMES_ACHIEVEMENTS_USERNAME, SETTING_GAMES_ACHIEVEMENTS_PASSWORD,
+             SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN, SETTING_GAMES_ACHIEVEMENTS_ENCORE,
+             SETTING_GAMES_ACHIEVEMENTS_INDICATOR, SETTING_GAMES_ACHIEVEMENTS_CREATE_ACCOUNT});
+
+  // On startup reset logged-in flag if token is missing
+  const std::string token = m_settings->GetString(SETTING_GAMES_ACHIEVEMENTS_TOKEN);
+  if (token.empty() && m_settings->GetBool(SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN))
+  {
+    CLog::Log(LOGWARNING, "CGameSettings: saved token is empty, resetting logged-in state");
+    m_settings->SetBool(SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN, false);
+    m_settings->Save();
+  }
+}
+
+CGameSettings::~CGameSettings()
+{
+  m_settings->UnregisterCallback(this);
+}
+
+bool CGameSettings::GamesEnabled()
+{
+  return m_settings->GetBool(SETTING_GAMES_ENABLE);
+}
+
+bool CGameSettings::ShowOSDHelp()
+{
+  return m_settings->GetBool(SETTING_GAMES_SHOW_OSD_HELP);
+}
+
+void CGameSettings::SetShowOSDHelp(bool bShow)
+{
+  if (m_settings->GetBool(SETTING_GAMES_SHOW_OSD_HELP) != bShow)
+  {
+    m_settings->SetBool(SETTING_GAMES_SHOW_OSD_HELP, bShow);
+
+    //! @todo Asynchronous save
+    m_settings->Save();
+  }
+}
+
+void CGameSettings::ToggleGames()
+{
+  m_settings->ToggleBool(SETTING_GAMES_ENABLE);
+}
+
+bool CGameSettings::AutosaveEnabled()
+{
+  return m_settings->GetBool(SETTING_GAMES_ENABLEAUTOSAVE);
+}
+
+bool CGameSettings::RewindEnabled()
+{
+  return m_settings->GetBool(SETTING_GAMES_ENABLEREWIND);
+}
+
+unsigned int CGameSettings::MaxRewindTimeSec()
+{
+  int rewindTimeSec = m_settings->GetInt(SETTING_GAMES_REWINDTIME);
+
+  return static_cast<unsigned int>(std::max(rewindTimeSec, 0));
+}
+
+std::string CGameSettings::GetRAUsername() const
+{
+  return m_settings->GetString(SETTING_GAMES_ACHIEVEMENTS_USERNAME);
+}
+
+std::string CGameSettings::GetRAToken() const
+{
+  return m_settings->GetString(SETTING_GAMES_ACHIEVEMENTS_TOKEN);
+}
+
+void CGameSettings::OnSettingAction(const std::shared_ptr<const CSetting>& setting)
+{
+  if (setting && setting->GetId() == SETTING_GAMES_ACHIEVEMENTS_CREATE_ACCOUNT)
+    CServiceBroker::GetGUI()->GetWindowManager().ActivateWindow(WINDOW_DIALOG_GAME_ACHIEVEMENTS);
+}
+
+void CGameSettings::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
+{
+  if (setting == nullptr)
+    return;
+
+  const std::string& settingId = setting->GetId();
+
+  // Signing in or out changes who the kept standings describe, and the runtime
+  // holds them per game rather than per account. Settings outlive the services
+  // that read them, so the runtime is only reached while it is there.
+  if (CServiceBroker::IsServiceManagerUp() && (settingId == SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN ||
+                                               settingId == SETTING_GAMES_ACHIEVEMENTS_USERNAME))
+  {
+    CServiceBroker::GetGameServices().AchievementRuntime().ForgetPlayerLeaderboardData();
+  }
+
+  if (settingId == SETTING_GAMES_ENABLEREWIND || settingId == SETTING_GAMES_REWINDTIME ||
+      settingId == SETTING_GAMES_ACHIEVEMENTS_ENCORE)
+  {
+    SetChanged();
+    NotifyObservers(ObservableMessageSettingsChanged);
+  }
+  else if (settingId == SETTING_GAMES_ACHIEVEMENTS_INDICATOR)
+  {
+    // Turning it on has to bring back an attempt that is already running, and
+    // no event is coming to say so
+    if (CServiceBroker::IsServiceManagerUp())
+      CServiceBroker::GetGameServices().AchievementRuntime().NotifyIndicatorsChanged();
+  }
+  else if (settingId == SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN &&
+           std::dynamic_pointer_cast<const CSettingBool>(setting)->GetValue())
+  {
+    const std::string username = m_settings->GetString(SETTING_GAMES_ACHIEVEMENTS_USERNAME);
+    const std::string password = m_settings->GetString(SETTING_GAMES_ACHIEVEMENTS_PASSWORD);
+    std::string token = m_settings->GetString(SETTING_GAMES_ACHIEVEMENTS_TOKEN);
+
+    token = LoginToRA(username, password, std::move(token));
+
+    m_settings->SetString(SETTING_GAMES_ACHIEVEMENTS_TOKEN, token);
+
+    if (!token.empty())
+    {
+      m_settings->SetBool(SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN, true);
+    }
+    else
+    {
+      if (settingId == SETTING_GAMES_ACHIEVEMENTS_PASSWORD)
+        m_settings->SetBool(SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN, false);
+    }
+
+    m_settings->Save();
+  }
+  else if (settingId == SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN &&
+           !std::dynamic_pointer_cast<const CSettingBool>(setting)->GetValue())
+  {
+    m_settings->SetString(SETTING_GAMES_ACHIEVEMENTS_TOKEN, "");
+    m_settings->Save();
+  }
+  else if (settingId == SETTING_GAMES_ACHIEVEMENTS_USERNAME ||
+           settingId == SETTING_GAMES_ACHIEVEMENTS_PASSWORD)
+  {
+    m_settings->SetBool(SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN, false);
+    m_settings->SetString(SETTING_GAMES_ACHIEVEMENTS_TOKEN, "");
+    m_settings->Save();
+  }
+}
+
+std::string CGameSettings::LoginToRA(const std::string& username,
+                                     const std::string& password,
+                                     std::string token) const
+{
+  if (username.empty() || password.empty())
+    return token;
+
+  const std::string postData = "u=" + CURL::Encode(username) + "&p=" + CURL::Encode(password);
+
+  CLog::Log(LOGDEBUG, "CGameSettings::LoginToRA -- logging in as '{}'", username);
+
+  // The server names the reason in the body of a 401, which CCurlFile
+  // discards for any error status unless asked not to
+  CURL url{LOGIN_TO_RETRO_ACHIEVEMENTS_URL};
+  url.SetProtocolOption("failonerror", "false");
+
+  XFILE::CCurlFile request;
+  request.SetRequestHeader("User-Agent", CSysInfo::GetUserAgent());
+  std::string strResponse;
+  if (request.Post(url.Get(), postData, strResponse))
+  {
+    CVariant data(CVariant::VariantTypeObject);
+    if (CJSONVariantParser::Parse(strResponse, data))
+    {
+      if (data[SUCCESS].asBoolean())
+      {
+        token = data[TOKEN].asString();
+
+        CLog::Log(LOGINFO, "CGameSettings::LoginToRA -- logged in successfully as '{}'", username);
+
+        // "RetroAchievements"
+        // "Logged in as {0:s}"
+        CServiceBroker::GetEventLog()->AddWithNotification(EventPtr(new CNotificationEvent(
+            35264,
+            StringUtils::Format(
+                CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35295), username),
+            StringUtils::Format(RA_USER_PIC_URL_TEMPLATE, CURL::Encode(username)),
+            EventLevel::Information)));
+      }
+      else
+      {
+        token.clear();
+
+        const std::string errorMsg = data["Error"].asString();
+        CLog::Log(LOGWARNING, "CGameSettings::LoginToRA -- server rejected: {}", errorMsg);
+
+        // "RetroAchievements"
+        // the server's reason or "Incorrect User/Password!"
+        CServiceBroker::GetEventLog()->AddWithNotification(EventPtr(new CNotificationEvent(
+            35264,
+            errorMsg.empty()
+                ? CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35265)
+                : errorMsg,
+            EventLevel::Error)));
+      }
+    }
+    else
+    {
+      CLog::Log(LOGERROR, "CGameSettings::LoginToRA -- invalid response: {}", strResponse);
+
+      CServiceBroker::GetEventLog()->AddWithNotification(
+          EventPtr(new CNotificationEvent(35264, 35267, EventLevel::Error)));
+    }
+  }
+  else
+  {
+    CLog::Log(LOGERROR, "CGameSettings::LoginToRA -- failed to contact server");
+
+    CServiceBroker::GetEventLog()->AddWithNotification(
+        EventPtr(new CNotificationEvent(35264, 35266, EventLevel::Error)));
+  }
+  return token;
+}
+
+bool CGameSettings::IsAccountVerified(const std::string& username, const std::string& token) const
+{
+  // Use r=getusersummary, which is a lightweight endpoint that confirms the
+  // token is valid. We request a=1 (1 recent achievement) to minimise the
+  // response payload
+  XFILE::CFile request;
+  const CURL verifyUrl(StringUtils::Format(VERIFY_ACCOUNT_URL_TEMPLATE, CURL::Encode(username),
+                                           CURL::Encode(token)));
+
+  CLog::Log(LOGDEBUG, "CGameSettings::IsAccountVerified -- verifying token for '{}'", username);
+
+  std::vector<uint8_t> response;
+  if (request.LoadFile(verifyUrl, response) > 0)
+  {
+    std::string strResponse(response.begin(), response.end());
+    CVariant data(CVariant::VariantTypeObject);
+
+    if (CJSONVariantParser::Parse(strResponse, data))
+    {
+      const bool verified = data[SUCCESS].asBoolean();
+      CLog::Log(LOGDEBUG, "CGameSettings::IsAccountVerified -- result: {}", verified);
+      return verified;
+    }
+  }
+
+  CLog::Log(LOGERROR, "CGameSettings::IsAccountVerified -- verification request failed");
+  return false;
+}
+
+bool CGameSettings::GetAchievementsEncore() const
+{
+  return CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+      SETTING_GAMES_ACHIEVEMENTS_ENCORE);
+}
+
+bool CGameSettings::GetChallengeIndicator() const
+{
+  return CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+      SETTING_GAMES_ACHIEVEMENTS_INDICATOR);
+}
+
+bool CGameSettings::GetAchievementsLoggedIn() const
+{
+  return CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+      SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN);
+}
+
+void CGameSettings::SetAchievementsLoggedIn(bool loggedIn)
+{
+  const auto settingsComponent = CServiceBroker::GetSettingsComponent();
+  if (!settingsComponent)
+    return;
+
+  const auto settings = settingsComponent->GetSettings();
+  if (!settings)
+    return;
+
+  if (settings->GetBool(SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN) == loggedIn)
+    return;
+
+  settings->SetBool(SETTING_GAMES_ACHIEVEMENTS_LOGGED_IN, loggedIn);
+  settings->Save();
+}

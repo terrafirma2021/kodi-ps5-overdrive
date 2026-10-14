@@ -1,0 +1,94 @@
+/*
+ *  Copyright (C) 2017-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#include "SettingDateTime.h"
+
+#include "XBDateTime.h"
+#include "utils/TimeUtils.h"
+
+#include <shared_mutex>
+
+CSettingDate::CSettingDate(const std::string& id, CSettingsManager* settingsManager /* = nullptr */)
+  : CSettingString(id, settingsManager)
+{ }
+
+CSettingDate::CSettingDate(const std::string& id,
+                           int label,
+                           const std::string& value,
+                           CSettingsManager* settingsManager /* = nullptr */)
+  : CSettingString(id, label, value, settingsManager)
+{ }
+
+CSettingDate::CSettingDate(std::string_view id, const CSettingDate& setting)
+  : CSettingString(id, setting)
+{ }
+
+SettingPtr CSettingDate::Clone(std::string_view id) const
+{
+  return std::make_shared<CSettingDate>(id, *this);
+}
+
+bool CSettingDate::CheckValidity(const std::string &value) const
+{
+  std::shared_lock lock(m_critical);
+
+  if (!CSettingString::CheckValidity(value))
+    return false;
+
+  return CDateTime::FromDBDate(value).IsValid();
+}
+
+CDateTime CSettingDate::GetDate() const
+{
+  return CDateTime::FromDBDate(GetValue());
+}
+
+bool CSettingDate::SetDate(const CDateTime& date)
+{
+  return SetValue(date.GetAsDBDate());
+}
+
+CSettingTime::CSettingTime(std::string_view id, CSettingsManager* settingsManager /* = nullptr */)
+  : CSettingString(id, settingsManager)
+{ }
+
+CSettingTime::CSettingTime(std::string_view id,
+                           int label,
+                           const std::string& value,
+                           CSettingsManager* settingsManager /* = nullptr */)
+  : CSettingString(id, label, value, settingsManager)
+{ }
+
+CSettingTime::CSettingTime(std::string_view id, const CSettingTime& setting)
+  : CSettingString(id, setting)
+{ }
+
+SettingPtr CSettingTime::Clone(std::string_view id) const
+{
+  return std::make_shared<CSettingTime>(id, *this);
+}
+
+bool CSettingTime::CheckValidity(const std::string &value) const
+{
+  std::shared_lock lock(m_critical);
+
+  if (!CSettingString::CheckValidity(value))
+    return false;
+
+  return CDateTime::FromDBTime(value).IsValid();
+}
+
+CDateTime CSettingTime::GetTime() const
+{
+  return CDateTime::FromDBTime(GetValue());
+}
+
+bool CSettingTime::SetTime(const CDateTime& time)
+{
+  return SetValue(CTimeUtils::WithoutSeconds(time.GetAsDBTime()));
+}

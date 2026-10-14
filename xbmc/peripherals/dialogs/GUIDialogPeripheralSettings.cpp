@@ -1,0 +1,365 @@
+/*
+ *  Copyright (C) 2005-2024 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#include "GUIDialogPeripheralSettings.h"
+
+#include "FileItem.h"
+#include "ServiceBroker.h"
+#include "addons/Skin.h"
+#include "dialogs/GUIDialogYesNo.h"
+#include "games/controllers/Controller.h"
+#include "games/controllers/ControllerLayout.h"
+#include "games/controllers/ControllerManager.h"
+#include "games/controllers/guicontrols/GUIGameController.h"
+#include "guilib/GUIMessage.h"
+#include "peripherals/Peripherals.h"
+#include "settings/SettingAddon.h"
+#include "settings/lib/Setting.h"
+#include "settings/lib/SettingSection.h"
+#include "utils/Variant.h"
+#include "utils/log.h"
+
+#include <string_view>
+#include <utility>
+
+using namespace KODI;
+using namespace PERIPHERALS;
+
+namespace
+{
+constexpr const int CONTROL_ID_PERIPHERAL_ICON = 100;
+
+// Setting that holds the controller profile of a peripheral
+constexpr std::string_view SETTING_APPEARANCE = "appearance";
+} // namespace
+
+CGUIDialogPeripheralSettings::CGUIDialogPeripheralSettings()
+  : CGUIDialogSettingsManualBase(WINDOW_DIALOG_PERIPHERAL_SETTINGS, "DialogSettings.xml"),
+    m_item(NULL)
+{
+}
+
+CGUIDialogPeripheralSettings::~CGUIDialogPeripheralSettings()
+{
+  if (m_item != NULL)
+    delete m_item;
+
+  m_changedValues.clear();
+}
+
+bool CGUIDialogPeripheralSettings::OnMessage(CGUIMessage& message)
+{
+  if (message.GetMessage() == GUI_MSG_CLICKED &&
+      message.GetSenderId() == CONTROL_SETTINGS_CUSTOM_BUTTON)
+  {
+    OnResetSettings();
+    return true;
+  }
+
+  return CGUIDialogSettingsManualBase::OnMessage(message);
+}
+
+void CGUIDialogPeripheralSettings::OnDeinitWindow(int nextWindowID)
+{
+  // discard any values that weren't applied by confirming the dialog
+  m_changedValues.clear();
+  m_resetRequested = false;
+
+  UpdateIcon({});
+  CGUIDialogSettingsManualBase::OnDeinitWindow(nextWindowID);
+}
+
+void CGUIDialogPeripheralSettings::RegisterPeripheralManager(CPeripherals& manager)
+{
+  m_manager = &manager;
+}
+
+void CGUIDialogPeripheralSettings::UnregisterPeripheralManager()
+{
+  m_manager = nullptr;
+}
+
+void CGUIDialogPeripheralSettings::SetFileItem(const CFileItem* item)
+{
+  if (item == NULL)
+    return;
+
+  if (m_item != NULL)
+    delete m_item;
+
+  m_item = new CFileItem(*item);
+}
+
+void CGUIDialogPeripheralSettings::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
+{
+  if (setting == NULL)
+    return;
+
+  CGUIDialogSettingsManualBase::OnSettingChanged(setting);
+
+  // ignore the values that are set while the controls are being created
+  if (m_initialising)
+    return;
+
+  const std::string& settingId = setting->GetId();
+
+  // Get peripheral associated with this setting
+  PeripheralPtr peripheral;
+  if (m_item != nullptr)
+    peripheral = CServiceBroker::GetPeripherals().GetByPath(m_item->GetPath());
+
+  if (!peripheral || !peripheral->HasSetting(settingId))
+    return;
+
+  // Remember the new value. It is applied to the peripheral when the dialog is confirmed, so
+  // that changes don't take effect while the user is still making them
+  m_changedValues[settingId] = setting->ToString();
+
+  // Refresh peripheral icon to show the selected appearance
+  if (settingId == SETTING_APPEARANCE)
+    UpdateIcon(CServiceBroker::GetGameControllerManager().GetController(setting->ToString()));
+}
+
+void CGUIDialogPeripheralSettings::UpdateIcon(const GAME::ControllerPtr& controller)
+{
+  GAME::CGUIGameController* control =
+      dynamic_cast<GAME::CGUIGameController*>(GetControl(CONTROL_ID_PERIPHERAL_ICON));
+  if (control != nullptr)
+    control->SetFileName(controller ? controller->Layout().ImagePath() : "");
+}
+
+bool CGUIDialogPeripheralSettings::Save()
+{
+  if (m_item == NULL || m_initialising)
+    return true;
+
+  PeripheralPtr peripheral = CServiceBroker::GetPeripherals().GetByPath(m_item->GetPath());
+  if (!peripheral)
+    return true;
+
+  // A reset was confirmed in this dialog, so let the peripheral reset itself now that the
+  // dialog is confirmed too. This covers what resetting means beyond the values shown here,
+  // such as a joystick's button map. The changed values are applied on top, so a setting
+  // edited after the reset still wins
+  if (m_resetRequested)
+    peripheral->ResetDefaultSettings();
+
+  // Apply the changed values. CPeripheral keeps track of the settings that actually changed, and
+  // notifies the peripheral of those changes when they are persisted
+  for (const auto& [settingId, value] : m_changedValues)
+    peripheral->SetSetting(settingId, value);
+
+  m_changedValues.clear();
+  m_resetRequested = false;
+
+  peripheral->PersistSettings();
+
+  return true;
+}
+
+void CGUIDialogPeripheralSettings::OnCancel()
+{
+  // discard the changed values
+  m_changedValues.clear();
+  m_resetRequested = false;
+}
+
+void CGUIDialogPeripheralSettings::OnResetSettings()
+{
+  if (m_item == NULL)
+    return;
+
+  PeripheralPtr peripheral = CServiceBroker::GetPeripherals().GetByPath(m_item->GetPath());
+  if (!peripheral)
+    return;
+
+  if (!CGUIDialogYesNo::ShowAndGetInput(CVariant{10041}, CVariant{10042}))
+    return;
+
+  // Buffer the defaults like any other change made in this dialog: they are shown in the
+  // controls straight away, but only reach the peripheral once the dialog itself is
+  // confirmed, and are discarded if it isn't. Confirming this prompt says which values to
+  // put in the dialog, not that the dialog is done.
+  m_pendingDefaults = CServiceBroker::GetPeripherals().GetDefaultSettingsFromMapping(*peripheral);
+  m_resetRequested = true;
+
+  // re-create all settings and their controls, so they show the defaults
+  SetupView();
+
+  m_pendingDefaults.clear();
+}
+
+void CGUIDialogPeripheralSettings::SetupView()
+{
+  CGUIDialogSettingsManualBase::SetupView();
+
+  SetHeading(m_item->GetLabel());
+  SET_CONTROL_LABEL(CONTROL_SETTINGS_OKAY_BUTTON, 186);
+  SET_CONTROL_LABEL(CONTROL_SETTINGS_CANCEL_BUTTON, 222);
+  SET_CONTROL_LABEL(CONTROL_SETTINGS_CUSTOM_BUTTON, 409);
+
+  // Set peripheral icon
+  GAME::ControllerPtr controller;
+
+  if (m_item != nullptr)
+  {
+    PeripheralPtr peripheral = CServiceBroker::GetPeripherals().GetByPath(m_item->GetPath());
+    if (peripheral)
+      controller = peripheral->ControllerProfile();
+  }
+
+  UpdateIcon(controller);
+}
+
+void CGUIDialogPeripheralSettings::InitializeSettings()
+{
+  if (m_item == NULL)
+  {
+    m_initialising = false;
+    return;
+  }
+
+  m_initialising = true;
+  auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+  const bool usePopup = skin && skin->HasSkinFile("DialogSlider.xml");
+
+  PeripheralPtr peripheral = CServiceBroker::GetPeripherals().GetByPath(m_item->GetPath());
+  if (!peripheral)
+  {
+    CLog::Log(LOGDEBUG, "{} - no peripheral", __FUNCTION__);
+    m_initialising = false;
+    return;
+  }
+
+  m_changedValues.clear();
+  CGUIDialogSettingsManualBase::InitializeSettings();
+
+  const std::shared_ptr<CSettingCategory> category = AddCategory("peripheralsettings", -1);
+  if (category == NULL)
+  {
+    CLog::Log(LOGERROR, "CGUIDialogPeripheralSettings: unable to setup settings");
+    return;
+  }
+
+  const std::shared_ptr<CSettingGroup> group = AddGroup(category);
+  if (group == NULL)
+  {
+    CLog::Log(LOGERROR, "CGUIDialogPeripheralSettings: unable to setup settings");
+    return;
+  }
+
+  std::vector<SettingPtr> settings = peripheral->GetSettings();
+  for (auto& setting : settings)
+  {
+    if (setting == NULL)
+      continue;
+
+    if (!setting->IsVisible())
+    {
+      CLog::Log(LOGDEBUG, "{} - invisible", __FUNCTION__);
+      continue;
+    }
+
+    // we need to create a copy of the setting because the CSetting instances
+    // are destroyed when leaving the dialog
+    SettingPtr settingCopy;
+    switch (setting->GetType())
+    {
+      case SettingType::Boolean:
+      {
+        std::shared_ptr<CSettingBool> settingBool = std::make_shared<CSettingBool>(
+            setting->GetId(), *std::static_pointer_cast<CSettingBool>(setting));
+        settingBool->SetControl(GetCheckmarkControl());
+
+        settingCopy = std::static_pointer_cast<CSetting>(settingBool);
+        break;
+      }
+
+      case SettingType::Integer:
+      {
+        std::shared_ptr<CSettingInt> settingInt = std::make_shared<CSettingInt>(
+            setting->GetId(), *std::static_pointer_cast<CSettingInt>(setting));
+        if (settingInt->GetTranslatableOptions().empty())
+          settingInt->SetControl(GetSliderControl("integer", false, -1, usePopup, -1, "{:d}"));
+        else
+          settingInt->SetControl(GetSpinnerControl("string"));
+
+        settingCopy = std::static_pointer_cast<CSetting>(settingInt);
+        break;
+      }
+
+      case SettingType::Number:
+      {
+        std::shared_ptr<CSettingNumber> settingNumber = std::make_shared<CSettingNumber>(
+            setting->GetId(), *std::static_pointer_cast<CSettingNumber>(setting));
+        settingNumber->SetControl(GetSliderControl("number", false, -1, usePopup, -1, "{:2.2f}"));
+
+        settingCopy = std::static_pointer_cast<CSetting>(settingNumber);
+        break;
+      }
+
+      case SettingType::String:
+      {
+        if (auto settingAsAddon = std::dynamic_pointer_cast<const CSettingAddon>(setting))
+        {
+          std::shared_ptr<CSettingAddon> settingAddon =
+              std::make_shared<CSettingAddon>(setting->GetId(), *settingAsAddon);
+
+          // Control properties
+          const std::string format = "addon";
+          const bool delayed = false;
+          const int heading = -1;
+          const bool hideValue = false;
+          const bool showInstalledAddons = true;
+          const bool showInstallableAddons = true;
+          const bool showMoreAddons = false;
+
+          settingAddon->SetControl(GetButtonControl(format, delayed, heading, hideValue,
+                                                    showInstalledAddons, showInstallableAddons,
+                                                    showMoreAddons));
+
+          GAME::ControllerPtr controller = peripheral->ControllerProfile();
+          if (controller)
+            settingAddon->SetValue(controller->ID());
+
+          settingCopy = std::static_pointer_cast<CSetting>(settingAddon);
+        }
+        else
+        {
+          std::shared_ptr<CSettingString> settingString = std::make_shared<CSettingString>(
+              setting->GetId(), *std::static_pointer_cast<CSettingString>(setting));
+          settingString->SetControl(GetEditControl("string"));
+
+          settingCopy = std::static_pointer_cast<CSetting>(settingString);
+        }
+        break;
+      }
+
+      default:
+        //! @todo add more types if needed
+        CLog::Log(LOGDEBUG, "{} - unknown type", __FUNCTION__);
+        break;
+    }
+
+    if (settingCopy != NULL && settingCopy->GetControl() != NULL)
+    {
+      // Seed the control with the default the user asked to reset to, and remember it as a
+      // change so that confirming the dialog applies it through the usual path. Done here
+      // rather than by resetting the peripheral, which would take effect before the dialog
+      // is confirmed.
+      const auto itDefault = m_pendingDefaults.find(settingCopy->GetId());
+      if (itDefault != m_pendingDefaults.end() && settingCopy->FromString(itDefault->second))
+        m_changedValues[settingCopy->GetId()] = itDefault->second;
+
+      settingCopy->SetLevel(SettingLevel::Basic);
+      group->AddSetting(settingCopy);
+    }
+  }
+
+  m_initialising = false;
+}

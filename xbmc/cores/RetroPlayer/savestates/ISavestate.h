@@ -1,0 +1,268 @@
+/*
+ *  Copyright (C) 2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#pragma once
+
+#include "SavestateTypes.h"
+#include "games/addons/disc/GameClientDiscState.h"
+
+#include <optional>
+#include <stdint.h>
+#include <string>
+#include <vector>
+
+extern "C"
+{
+#include <libavutil/pixfmt.h>
+}
+
+class CDateTime;
+
+namespace KODI
+{
+namespace RETRO
+{
+class ISavestate
+{
+public:
+  virtual ~ISavestate() = default;
+
+  /*!
+   * \brief Reset to the initial state
+   */
+  virtual void Reset() = 0;
+
+  /*!
+   * Access the data representation of this savestate
+   */
+  virtual bool Serialize(const uint8_t*& data, size_t& size) const = 0;
+
+  /// @name Savestate properties
+  ///{
+  /*!
+   * \brief The type of save action that created this savestate, either
+   *        manual or automatic
+   */
+  virtual SAVE_TYPE Type() const = 0;
+
+  /*!
+   * \brief The slot this savestate was saved into, or 0 for no slot
+   *
+   * This allows for keyboard access of saved games using the number keys 1-9.
+   */
+  virtual uint8_t Slot() const = 0;
+
+  /*!
+   * \brief The label shown in the GUI for this savestate
+   */
+  virtual std::string Label() const = 0;
+
+  /*!
+   * \brief A caption that describes the state of the game for this savestate
+   */
+  virtual std::string Caption() const = 0;
+
+  /*!
+   * \brief The timestamp of this savestate's creation
+   */
+  virtual CDateTime Created() const = 0;
+  ///}
+
+  /// @name Game properties
+  ///{
+  /*!
+   * \brief The name of the file belonging to this savestate's game
+   */
+  virtual std::string GameFileName() const = 0;
+  ///}
+
+  /// @name Environment properties
+  ///{
+  /*!
+   * \brief The number of frames in the entire gameplay history
+   */
+  virtual uint64_t TimestampFrames() const = 0;
+
+  /*!
+   * \brief The duration of the entire gameplay history as seen by a wall clock
+   */
+  virtual double TimestampWallClock() const = 0;
+  ///}
+
+  /// @name Game client properties
+  ///{
+  /*!
+   * \brief The game client add-on ID that created this savestate
+   */
+  virtual std::string GameClientID() const = 0;
+
+  /*!
+   * \brief The semantic version of the game client
+   */
+  virtual std::string GameClientVersion() const = 0;
+  ///}
+
+  /// @name Video stream properties
+  ///{
+  /*!
+   * \brief The pixel format of the video stream
+   */
+  virtual AVPixelFormat GetPixelFormat() const = 0;
+
+  /*!
+   * \brief The nominal width of the video stream, a good guess for subsequent frames
+   */
+  virtual unsigned int GetNominalWidth() const = 0;
+
+  /*!
+   * \brief The nominal height of the video stream, a good guess for subsequent frames
+   */
+  virtual unsigned int GetNominalHeight() const = 0;
+
+  /*!
+   * \brief The nominal display aspect ratio of the video stream
+   *
+   * An aspect ratio of 0.0f indicates square pixels, i.e. a DAR of W/H.
+   */
+  virtual float GetNominalDisplayAspectRatio() const = 0;
+
+  /*!
+   * \brief The maximum width of the video stream, in pixels
+   */
+  virtual unsigned int GetMaxWidth() const = 0;
+
+  /*!
+   * \brief The maximum height of the video stream, in pixels
+   */
+  virtual unsigned int GetMaxHeight() const = 0;
+  ///}
+
+  /// @name Video frame properties
+  ///{
+  /*!
+   * \brief A pointer to the frame's video data (pixels)
+   */
+  virtual const uint8_t* GetVideoData() const = 0;
+
+  /*!
+   * \brief Validate and prepare the frame's video data for reading
+   */
+  virtual bool PrepareVideoData() = 0;
+
+  /*!
+   * \brief The size of the frame's video data, in bytes
+   */
+  virtual size_t GetVideoSize() const = 0;
+
+  /*!
+   * \brief The width of the video frame, in pixels
+   */
+  virtual unsigned int GetVideoWidth() const = 0;
+
+  /*!
+   * \brief The height of the video frame, in pixels
+   */
+  virtual unsigned int GetVideoHeight() const = 0;
+
+  /*!
+   * \brief The display aspect ratio of the video frame
+   *
+   * An aspect ratio of 0.0f indicates square pixels, i.e. a DAR of W/H.
+   */
+  virtual float GetDisplayAspectRatio() const = 0;
+
+  /*!
+   * \brief The rotation of the video frame, in degrees counter-clockwise
+   */
+  virtual unsigned int GetRotationDegCCW() const = 0;
+  ///}
+
+  /// @name Memory properties
+  ///{
+  /*!
+   * \brief A pointer to the internal memory (SRAM) of the frame
+   */
+  virtual const uint8_t* GetMemoryData() const = 0;
+
+  /*!
+   * \brief Return true if any savestate data uses compression
+   */
+  virtual bool IsCompressed() const = 0;
+
+  /*!
+   * \brief Validate and prepare the memory data for reading
+   */
+  virtual bool PrepareMemoryData(size_t expectedSize) = 0;
+
+  /*!
+   * \brief The size of the memory region returned by GetMemoryData()
+   */
+  virtual size_t GetMemorySize() const = 0;
+
+  /*!
+   * \brief Copy the memory data to another savestate without requiring decompression
+   */
+  virtual bool CopyMemoryDataTo(ISavestate& target) const = 0;
+  ///}
+
+  /// @name Builders for setting individual fields
+  ///{
+  virtual void SetType(SAVE_TYPE type) = 0;
+  virtual void SetSlot(uint8_t slot) = 0;
+  virtual void SetLabel(const std::string& label) = 0;
+  virtual void SetCaption(const std::string& caption) = 0;
+  virtual void SetCreated(const CDateTime& createdUTC) = 0;
+  virtual void SetGameFileName(const std::string& gameFileName) = 0;
+  virtual void SetTimestampFrames(uint64_t timestampFrames) = 0;
+  virtual void SetTimestampWallClock(double timestampWallClock) = 0;
+  virtual void SetGameClientID(const std::string& gameClient) = 0;
+  virtual void SetGameClientVersion(const std::string& gameClient) = 0;
+  virtual void SetPixelFormat(AVPixelFormat pixelFormat) = 0;
+  virtual void SetNominalWidth(unsigned int nominalWidth) = 0;
+  virtual void SetNominalHeight(unsigned int nominalHeight) = 0;
+  virtual void SetNominalDisplayAspectRatio(float nominalDisplayAspectRatio) = 0;
+  virtual void SetMaxWidth(unsigned int maxWidth) = 0;
+  virtual void SetMaxHeight(unsigned int maxHeight) = 0;
+  virtual uint8_t* GetVideoBuffer(size_t size) = 0;
+  virtual void SetVideoWidth(unsigned int videoWidth) = 0;
+  virtual void SetVideoHeight(unsigned int videoHeight) = 0;
+  virtual void SetDisplayAspectRatio(float displayAspectRatio) = 0;
+  virtual void SetRotationDegCCW(unsigned int rotationCCW) = 0;
+  virtual uint8_t* GetMemoryBuffer(size_t size) = 0;
+
+  /*!
+   * \brief The achievement runtime's state, if the savestate carries any
+   *
+   * \return The state, or nullptr when the savestate was written without it
+   */
+  virtual const uint8_t* GetAchievementData() const = 0;
+
+  /*!
+   * \brief The size of the region returned by GetAchievementData()
+   */
+  virtual size_t GetAchievementSize() const = 0;
+
+  virtual std::optional<GAME::GameClientDiscState> GetDiscState() const = 0;
+
+  /*!
+   * \brief A buffer to write the achievement runtime's state into
+   *
+   * Sized by the caller from what the runtime reports, so it is not capped.
+   */
+  virtual uint8_t* GetAchievementBuffer(size_t size) = 0;
+  virtual void SetDiscState(const std::optional<GAME::GameClientDiscState>& state) = 0;
+  virtual void Finalize() = 0;
+  ///}
+
+  /*!
+   * \brief Take ownership and initialize the flatbuffer with the given vector
+   */
+  virtual bool Deserialize(std::vector<uint8_t> data) = 0;
+};
+} // namespace RETRO
+} // namespace KODI

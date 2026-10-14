@@ -1,0 +1,148 @@
+/*
+ *  Copyright (C) 2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#pragma once
+
+#include "ISavestate.h"
+#include "SavestateBlob.h"
+
+#include <memory>
+
+#include <flatbuffers/flatbuffers.h>
+
+namespace KODI
+{
+namespace RETRO
+{
+namespace SAVESTATE
+{
+struct Savestate;
+}
+
+class CSavestateFlatBuffer : public ISavestate
+{
+public:
+  CSavestateFlatBuffer();
+  ~CSavestateFlatBuffer() override;
+
+  // Implementation of ISavestate
+  void Reset() override;
+  bool Serialize(const uint8_t*& data, size_t& size) const override;
+  SAVE_TYPE Type() const override;
+  uint8_t Slot() const override;
+  std::string Label() const override;
+  std::string Caption() const override;
+  CDateTime Created() const override;
+  std::string GameFileName() const override;
+  uint64_t TimestampFrames() const override;
+  double TimestampWallClock() const override;
+  std::string GameClientID() const override;
+  std::string GameClientVersion() const override;
+  AVPixelFormat GetPixelFormat() const override;
+  unsigned int GetNominalWidth() const override;
+  unsigned int GetNominalHeight() const override;
+  float GetNominalDisplayAspectRatio() const override;
+  unsigned int GetMaxWidth() const override;
+  unsigned int GetMaxHeight() const override;
+  const uint8_t* GetVideoData() const override;
+  bool PrepareVideoData() override;
+  size_t GetVideoSize() const override;
+  unsigned int GetVideoWidth() const override;
+  unsigned int GetVideoHeight() const override;
+  float GetDisplayAspectRatio() const override;
+  unsigned int GetRotationDegCCW() const override;
+  const uint8_t* GetMemoryData() const override;
+  bool IsCompressed() const override;
+  bool PrepareMemoryData(size_t expectedSize) override;
+  size_t GetMemorySize() const override;
+  bool CopyMemoryDataTo(ISavestate& target) const override;
+  void SetType(SAVE_TYPE type) override;
+  void SetSlot(uint8_t slot) override;
+  void SetLabel(const std::string& label) override;
+  void SetCaption(const std::string& caption) override;
+  void SetCreated(const CDateTime& createdUTC) override;
+  void SetGameFileName(const std::string& gameFileName) override;
+  void SetTimestampFrames(uint64_t timestampFrames) override;
+  void SetTimestampWallClock(double timestampWallClock) override;
+  void SetGameClientID(const std::string& gameClient) override;
+  void SetGameClientVersion(const std::string& gameClient) override;
+  void SetPixelFormat(AVPixelFormat pixelFormat) override;
+  void SetNominalWidth(unsigned int nominalWidth) override;
+  void SetNominalHeight(unsigned int nominalHeight) override;
+  void SetNominalDisplayAspectRatio(float nominalDisplayAspectRatio) override;
+  void SetMaxWidth(unsigned int maxWidth) override;
+  void SetMaxHeight(unsigned int maxHeight) override;
+  uint8_t* GetVideoBuffer(size_t size) override;
+  void SetVideoWidth(unsigned int videoWidth) override;
+  void SetVideoHeight(unsigned int videoHeight) override;
+  void SetDisplayAspectRatio(float displayAspectRatio) override;
+  void SetRotationDegCCW(unsigned int rotationCCW) override;
+  uint8_t* GetMemoryBuffer(size_t size) override;
+  const uint8_t* GetAchievementData() const override;
+  size_t GetAchievementSize() const override;
+  std::optional<GAME::GameClientDiscState> GetDiscState() const override;
+  uint8_t* GetAchievementBuffer(size_t size) override;
+  void SetDiscState(const std::optional<GAME::GameClientDiscState>& state) override;
+  void Finalize() override;
+  bool Deserialize(std::vector<uint8_t> data) override;
+
+private:
+  /*!
+   * \brief Helper class to hold data needed in creation of a FlatBuffer
+   *
+   * The builder is used when deserializing from individual fields.
+   */
+  std::unique_ptr<flatbuffers::FlatBufferBuilder> m_builder;
+
+  /*!
+   * \brief System memory storage (for deserializing savestates)
+   *
+   * This memory is used when deserializing from a vector.
+   */
+  std::vector<uint8_t> m_data;
+
+  /*!
+   * \brief FlatBuffer struct used for accessing data
+   */
+  const SAVESTATE::Savestate* m_savestate = nullptr;
+
+  using StringOffset = flatbuffers::Offset<flatbuffers::String>;
+
+  // Temporary deserialization variables
+  SAVE_TYPE m_type = SAVE_TYPE::UNKNOWN;
+  uint8_t m_slot = 0;
+  std::unique_ptr<StringOffset> m_labelOffset;
+  std::unique_ptr<StringOffset> m_captionOffset;
+  std::unique_ptr<StringOffset> m_createdOffset;
+  std::unique_ptr<StringOffset> m_gameFileNameOffset;
+  uint64_t m_timestampFrames = 0;
+  double m_timestampWallClock = 0.0;
+  std::unique_ptr<StringOffset> m_emulatorAddonIdOffset;
+  std::unique_ptr<StringOffset> m_emulatorVersionOffset;
+  AVPixelFormat m_pixelFormat{AV_PIX_FMT_NONE};
+  unsigned int m_nominalWidth{0};
+  unsigned int m_nominalHeight{0};
+  float m_nominalDisplayAspectRatio{0.0f};
+  unsigned int m_maxWidth{0};
+  unsigned int m_maxHeight{0};
+  std::vector<uint8_t> m_videoData;
+  std::vector<uint8_t> m_videoDataDecompressed;
+  unsigned int m_videoWidth{0};
+  unsigned int m_videoHeight{0};
+  float m_displayAspectRatio{0.0f};
+  unsigned int m_rotationCCW{0};
+  PendingSavestateBlob m_memoryData;
+  std::vector<uint8_t> m_memoryDataDecompressed;
+
+  //! Small and written rarely, so it is stored as-is rather than through the
+  //! compressing blob path the video and memory payloads use
+  std::vector<uint8_t> m_achievementData;
+  std::optional<GAME::GameClientDiscState> m_discState;
+};
+} // namespace RETRO
+} // namespace KODI

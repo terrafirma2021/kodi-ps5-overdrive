@@ -1,0 +1,64 @@
+if(NOT CMAKE_TOOLCHAIN_FILE)
+  message(FATAL_ERROR "CMAKE_TOOLCHAIN_FILE required for osx. See ${CMAKE_SOURCE_DIR}/cmake/README.md")
+endif()
+
+list(APPEND CORE_MAIN_SOURCE ${CMAKE_SOURCE_DIR}/xbmc/platform/darwin/osx/XBMCApplication.h)
+set(PLATFORM_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/xbmc/platform/darwin/${CORE_PLATFORM_NAME_LC}/Info.plist.in)
+
+set(ARCH_DEFINES -DTARGET_POSIX -DTARGET_DARWIN -DTARGET_DARWIN_OSX)
+list(APPEND SYSTEM_DEFINES -D_REENTRANT -D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE
+                           -D__STDC_CONSTANT_MACROS)
+set(PLATFORM_DIR platform/darwin)
+set(PLATFORMDEFS_DIR platform/posix)
+set(CMAKE_SYSTEM_NAME Darwin)
+if(WITH_ARCH)
+  set(ARCH ${WITH_ARCH})
+else()
+  if(CPU STREQUAL x86_64 OR CPU STREQUAL i386)
+    set(ARCH x86-osx)
+    set(NEON False)
+  elseif(CPU STREQUAL arm64)
+    set(ARCH aarch64)
+  else()
+    message(SEND_ERROR "Unknown CPU: ${CPU}")
+  endif()
+endif()
+
+# Xcode sets a deployment target for every Apple platform it knows about, not just the one
+# being built for, and exports them all into Run Script build phases. clang rejects an
+# invocation that sees more than one:
+#   clang: error: conflicting deployment targets, both '26.5' and '25.5' are present in environment
+# which breaks internal dependencies that configure or build through a shell. Blank the
+# platforms we do not build for; MACOSX_DEPLOYMENT_TARGET stays, it is what
+# CMAKE_OSX_DEPLOYMENT_TARGET feeds. Check with:
+#   xcodebuild -target build-<dep> -showBuildSettings | grep _DEPLOYMENT_TARGET
+set(CMAKE_XCODE_ATTRIBUTE_DRIVERKIT_DEPLOYMENT_TARGET "")
+set(CMAKE_XCODE_ATTRIBUTE_WATCHOS_DEPLOYMENT_TARGET "")
+set(CMAKE_XCODE_ATTRIBUTE_XROS_DEPLOYMENT_TARGET "")
+set(CMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "")
+set(CMAKE_XCODE_ATTRIBUTE_TVOS_DEPLOYMENT_TARGET "")
+
+# m1 macs can execute x86_64 code via rosetta
+if(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64" AND
+   CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+  set(HOST_CAN_EXECUTE_TARGET TRUE)
+endif()
+
+set(CMAKE_OSX_ARCHITECTURES ${CPU})
+
+# Additional SYSTEM_DEFINES
+list(APPEND SYSTEM_DEFINES -DHAS_POSIX_NETWORK -DHAS_OSX_NETWORK -DHAS_ZEROCONF)
+
+list(APPEND DEPLIBS "-framework DiskArbitration" "-framework IOKit"
+                    "-framework IOSurface" "-framework SystemConfiguration"
+                    "-framework ApplicationServices" "-framework AppKit"
+                    "-framework CoreAudio" "-framework AudioToolbox"
+                    "-framework CoreGraphics" "-framework CoreMedia"
+                    "-framework VideoToolbox" "-framework Security"
+                    "-framework GameController" "-framework Speech"
+                    "-framework AVFoundation")
+
+set(CMAKE_XCODE_ATTRIBUTE_CLANG_LINK_OBJC_RUNTIME OFF)
+
+include(cmake/scripts/darwin/Macros.cmake)
+enable_arc()

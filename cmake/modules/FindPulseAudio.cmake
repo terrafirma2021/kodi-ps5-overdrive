@@ -1,0 +1,63 @@
+#.rst:
+# FindPulseAudio
+# --------------
+# Finds the PulseAudio library
+#
+# This will define the following targets:
+#
+#   ${APP_NAME_LC}::PulseAudio - The PulseAudio library
+#   ${APP_NAME_LC}::PulseAudioSimple - The PulseAudio simple library
+
+if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
+  include(cmake/scripts/common/ModuleHelpers.cmake)
+
+  SETUP_FIND_SPECS()
+
+  find_package(PkgConfig ${SEARCH_QUIET})
+  if(PKG_CONFIG_FOUND)
+    pkg_check_modules(PC_PULSEAUDIO libpulse${PC_${CMAKE_FIND_PACKAGE_NAME}_FIND_SPEC} ${SEARCH_QUIET})
+    pkg_check_modules(PC_PULSEAUDIO_SIMPLE libpulse-simple${PC_${CMAKE_FIND_PACKAGE_NAME}_FIND_SPEC} ${SEARCH_QUIET})
+  endif()
+
+  find_path(PULSEAUDIO_INCLUDE_DIR NAMES pulse/pulseaudio.h pulse/simple.h
+                                   HINTS ${PC_PULSEAUDIO_INCLUDEDIR} ${PC_PULSEAUDIO_INCLUDE_DIRS})
+
+  find_library(PULSEAUDIO_LIBRARY NAMES pulse libpulse
+                                  HINTS ${PC_PULSEAUDIO_LIBDIR} ${PC_PULSEAUDIO_LIBRARY_DIRS})
+
+  find_library(PULSEAUDIO_SIMPLE_LIBRARY NAMES pulse-simple libpulse-simple
+                                         HINTS ${PC_PULSEAUDIO_LIBDIR} ${PC_PULSEAUDIO_LIBRARY_DIRS})
+
+  if(PC_PULSEAUDIO_VERSION)
+    set(PULSEAUDIO_VERSION_STRING ${PC_PULSEAUDIO_VERSION})
+  elseif(PULSEAUDIO_INCLUDE_DIR AND EXISTS "${PULSEAUDIO_INCLUDE_DIR}/pulse/version.h")
+    file(STRINGS "${PULSEAUDIO_INCLUDE_DIR}/pulse/version.h" pulseaudio_version_str REGEX "^#define[\t ]+pa_get_headers_version\\(\\)[\t ]+\\(\".*\"\\).*")
+    string(REGEX REPLACE "^#define[\t ]+pa_get_headers_version\\(\\)[\t ]+\\(\"([^\"]+)\"\\).*" "\\1" PULSEAUDIO_VERSION_STRING "${pulseaudio_version_str}")
+    unset(pulseaudio_version_str)
+  endif()
+
+  if(NOT VERBOSE_FIND)
+     set(${CMAKE_FIND_PACKAGE_NAME}_FIND_QUIETLY TRUE)
+   endif()
+
+  include(FindPackageHandleStandardArgs)
+  find_package_handle_standard_args(PulseAudio
+                                    REQUIRED_VARS PULSEAUDIO_LIBRARY PULSEAUDIO_SIMPLE_LIBRARY PULSEAUDIO_INCLUDE_DIR
+                                    VERSION_VAR PULSEAUDIO_VERSION_STRING)
+
+  if(PULSEAUDIO_FOUND)
+    list(APPEND AUDIO_BACKENDS_LIST "pulseaudio")
+    set(AUDIO_BACKENDS_LIST ${AUDIO_BACKENDS_LIST} PARENT_SCOPE)
+
+    add_library(${APP_NAME_LC}::PulseAudioSimple UNKNOWN IMPORTED)
+    set_target_properties(${APP_NAME_LC}::PulseAudioSimple PROPERTIES
+                                                           IMPORTED_LOCATION "${PULSEAUDIO_SIMPLE_LIBRARY}")
+
+    add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} UNKNOWN IMPORTED)
+    set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
+                                                                     IMPORTED_LOCATION "${PULSEAUDIO_LIBRARY}"
+                                                                     INTERFACE_INCLUDE_DIRECTORIES "${PULSEAUDIO_INCLUDE_DIR}"
+                                                                     INTERFACE_COMPILE_DEFINITIONS HAS_PULSEAUDIO
+                                                                     INTERFACE_LINK_LIBRARIES "${APP_NAME_LC}::PulseAudioSimple")
+  endif()
+endif()

@@ -1,0 +1,24 @@
+include ../../Makefile.include MARKUPSAFE-VERSION ../../download-files.include
+PREFIX=$(NATIVEPREFIX)
+PLATFORM=$(NATIVEPLATFORM)
+DEPS = ../../Makefile.include Makefile MARKUPSAFE-VERSION ../../download-files.include \
+                01-all-GH399-removedistutils.patch
+
+
+all: .installed-$(PLATFORM)
+
+.configured-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
+	-rm -rf $(PLATFORM)/*; mkdir -p $(PLATFORM)
+	cd $(PLATFORM); $(ARCHIVE_TOOL) $(ARCHIVE_TOOL_FLAGS) $(TARBALLS_LOCATION)/$(ARCHIVE)
+	touch $@
+
+.installed-$(PLATFORM): .configured-$(PLATFORM)
+	cd $(PLATFORM); patch -p1 -i ../01-all-GH399-removedistutils.patch
+	cd $(PLATFORM); $(PREFIX)/bin/python3 -m pip install --no-deps --no-build-isolation --prefix=$(PREFIX) .
+	touch $@
+
+clean:
+	rm -f .installed-$(PLATFORM) .configured-$(PLATFORM)
+
+distclean::
+	rm -rf $(PLATFORM) .installed-$(PLATFORM) .configured-$(PLATFORM)

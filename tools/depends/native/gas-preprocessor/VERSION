@@ -1,0 +1,4 @@
+LIBNAME=gas-preprocessor
+BASE_URL=https://github.com/FFmpeg/gas-preprocessor
+COMMIT=b2745758d9eee37a5bc6ee3c4901edc995d9343c
+COMMIT_DATE=2025/10/03

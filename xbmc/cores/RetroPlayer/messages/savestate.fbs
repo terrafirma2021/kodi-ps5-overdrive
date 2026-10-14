@@ -1,0 +1,100 @@
+//
+//  Copyright (C) 2018-2026 Team Kodi
+//  This file is part of Kodi - https://kodi.tv
+//
+//  SPDX-License-Identifier: MIT
+//  See LICENSES/README.md for more information.
+//
+
+include "video.fbs";
+
+namespace KODI.RETRO.SAVESTATE;
+
+// Savestate schema
+// Version 6
+
+file_identifier "SAV_";
+
+enum SaveType : uint8 {
+  Unknown,
+  Auto,
+  Manual
+}
+
+enum CompressionType : uint8 {
+  None,
+}
+
+enum DiscSlotType : uint8 {
+  Unknown,
+  Disc,
+  Removed
+}
+
+table DiscSlot {
+  type:DiscSlotType (id: 0);
+  file_name:string (id: 1);
+  label:string (id: 2);
+}
+
+table DiscState {
+  slots:[DiscSlot] (id: 0);
+  selected_slot:int32 = -1 (id: 1);
+  tray_ejected:bool (id: 2);
+}
+
+table Savestate {
+  // Schema version
+  version:uint8 (id: 0);
+
+  // Savestate properties
+  type:SaveType (id: 1);
+  slot:uint8 (id: 2);
+  label:string (id: 3);
+  caption:string (id: 11);
+  created:string (id: 4); // W3C date time [ISO 8601 : 1988 (E)] with timezone info
+
+  // Game properties
+  game_file_name:string (id: 5);
+
+  // Environment properties
+  timestamp_frames:uint64 (id: 6);
+  timestamp_wall_clock_ns:uint64 (id: 7);
+
+  // Emulator properties
+  emulator_addon_id:string (id: 8);
+  emulator_version:string (id: 9); // Semantic version
+
+  // Video stream properties
+  pixel_format:PixelFormat (id: 12);
+  nominal_width:uint16 (id: 13);
+  nominal_height:uint16 (id: 14);
+  nominal_display_aspect_ratio:float (id: 22);
+  max_width:uint16 (id: 15);
+  max_height:uint16 (id: 16);
+  pixel_aspect_ratio:float (id: 17); // Unused
+
+  // Video frame properties
+  video_data:[uint8] (id: 18);
+  video_width:uint16 (id: 19);
+  video_height:uint16 (id: 20);
+  display_aspect_ratio:float (id: 23);
+  rotation_ccw:VideoRotation (id: 21);
+  video_data_compressed:[uint8] (id: 27);
+  video_data_compression:CompressionType = None (id: 28);
+  video_data_uncompressed_size:uint64 = 0 (id: 29);
+
+  // Memory properties
+  memory_data:[uint8] (id: 10);
+  memory_data_compressed:[uint8] (id: 24);
+  memory_data_compression:CompressionType = None (id: 25);
+  memory_data_uncompressed_size:uint64 = 0 (id: 26);
+
+  // Achievement properties
+  achievement_data:[uint8] (id: 30);
+
+  // Disc properties
+  disc_state:DiscState (id: 31);
+}
+
+root_type Savestate;

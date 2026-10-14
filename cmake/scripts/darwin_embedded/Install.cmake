@@ -1,0 +1,153 @@
+# IOS/TVOS packaging
+
+set(ASSET_CATALOG "${CMAKE_SOURCE_DIR}/xbmc/platform/darwin/${CORE_PLATFORM_NAME_LC}/Assets.xcassets")
+set(COPY_AS_RESOURCES ${ASSET_CATALOG})
+
+if(CORE_PLATFORM_NAME_LC STREQUAL tvos)
+  # asset catalog
+  set(ASSET_CATALOG_APPICON Assets)
+  set(ASSET_CATALOG_LAUNCH_IMAGE LaunchImage)
+
+  message("generating missing asset catalog images...")
+  execute_process(COMMAND ${CMAKE_SOURCE_DIR}/tools/darwin/Support/GenerateMissingImages-tvos.py "${ASSET_CATALOG}" ${ASSET_CATALOG_APPICON} ${ASSET_CATALOG_LAUNCH_IMAGE})
+
+  # entitlements
+  set(ENTITLEMENTS_OUT_PATH "${CMAKE_BINARY_DIR}/CMakeFiles/${APP_NAME_LC}.dir/Kodi.entitlements")
+  configure_file(${CMAKE_SOURCE_DIR}/xbmc/platform/darwin/tvos/Kodi.entitlements.in ${ENTITLEMENTS_OUT_PATH} @ONLY)
+
+  set_target_properties(${APP_NAME_LC} PROPERTIES
+    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME ${ASSET_CATALOG_LAUNCH_IMAGE}
+    XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS ${ENTITLEMENTS_OUT_PATH}
+  )
+
+else()
+  set(ASSET_CATALOG_APPICON AppIcon)
+
+  list(APPEND COPY_AS_RESOURCES
+    "${CMAKE_SOURCE_DIR}/media/splash.jpg"
+    "${CMAKE_SOURCE_DIR}/xbmc/platform/darwin/ios/LaunchScreen.storyboard"
+  )
+
+endif()
+
+set_target_properties(${APP_NAME_LC} PROPERTIES
+  XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME ${ASSET_CATALOG_APPICON}
+)
+target_sources(${APP_NAME_LC} PRIVATE ${COPY_AS_RESOURCES})
+foreach(file IN LISTS COPY_AS_RESOURCES)
+  set_source_files_properties(${file} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources") # adds to Copy Bundle Resources build phase
+endforeach()
+
+# setup code signing
+# dev team ID / identity (certificate)
+set(DEVELOPMENT_TEAM "" CACHE STRING "Development Team")
+set(CODE_SIGN_IDENTITY $<IF:$<BOOL:${DEVELOPMENT_TEAM}>,iPhone\ Developer,> CACHE STRING "Code Sign Identity")
+
+# app provisioning profile
+set(CODE_SIGN_STYLE_APP Automatic)
+set(PROVISIONING_PROFILE_APP "" CACHE STRING "Provisioning profile name for the Kodi app")
+if(PROVISIONING_PROFILE_APP)
+  set(CODE_SIGN_STYLE_APP Manual)
+endif()
+
+# top shelf provisioning profile
+if(CORE_PLATFORM_NAME_LC STREQUAL tvos)
+  set(CODE_SIGN_STYLE_TOPSHELF Automatic)
+  set(PROVISIONING_PROFILE_TOPSHELF "" CACHE STRING "Provisioning profile name for the Top Shelf")
+  if(PROVISIONING_PROFILE_TOPSHELF)
+    set(CODE_SIGN_STYLE_TOPSHELF Manual)
+  endif()
+  set_target_properties(${TOPSHELF_EXTENSION_NAME} PROPERTIES
+    XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "${CODE_SIGN_IDENTITY}"
+    XCODE_ATTRIBUTE_CODE_SIGN_STYLE "${CODE_SIGN_STYLE_TOPSHELF}"
+    XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${DEVELOPMENT_TEAM}"
+    XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${PLATFORM_BUNDLE_IDENTIFIER}.topshelf"
+    XCODE_ATTRIBUTE_PROVISIONING_PROFILE_SPECIFIER "${PROVISIONING_PROFILE_TOPSHELF}"
+  )
+  # copy extension inside PlugIns dir of the app bundle
+  add_custom_command(TARGET ${APP_NAME_LC} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} ARGS -E copy_directory $<TARGET_BUNDLE_DIR:${TOPSHELF_EXTENSION_NAME}>
+                                                      $<TARGET_BUNDLE_DIR:${APP_NAME_LC}>/PlugIns/${TOPSHELF_EXTENSION_NAME}.${TOPSHELF_BUNDLE_EXTENSION}
+                                                      MAIN_DEPENDENCY ${TOPSHELF_EXTENSION_NAME})
+endif()
+set_target_properties(${APP_NAME_LC} PROPERTIES
+  XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "${CODE_SIGN_IDENTITY}"
+  XCODE_ATTRIBUTE_CODE_SIGN_STYLE "${CODE_SIGN_STYLE_APP}"
+  XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${DEVELOPMENT_TEAM}"
+  XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${PLATFORM_BUNDLE_IDENTIFIER}"
+  XCODE_ATTRIBUTE_PROVISIONING_PROFILE_SPECIFIER "${PROVISIONING_PROFILE_APP}"
+)
+
+# Create xcode target that allows to build binary-addons.
+if(ADDONS_TO_BUILD)
+  set(_addons "ADDONS=${ADDONS_TO_BUILD}")
+endif()
+add_custom_target(binary-addons
+  COMMAND make -C ${CMAKE_SOURCE_DIR}/tools/depends/target/binary-addons clean
+  COMMAND make -C ${CMAKE_SOURCE_DIR}/tools/depends/target/binary-addons VERBOSE=1 V=99
+        INSTALL_PREFIX="${CMAKE_BINARY_DIR}/addons" CROSS_COMPILING=yes ${_addons})
+if(ENABLE_XCODE_ADDONBUILD)
+  add_dependencies(${APP_NAME_LC} binary-addons)
+endif()
+unset(_addons)
+
+add_custom_command(TARGET ${APP_NAME_LC} POST_BUILD
+    COMMAND "ACTION=build"
+            "APP_NAME=${APP_NAME}"
+            "XBMC_DEPENDS=${DEPENDS_PATH}"
+            "SRCROOT=${CMAKE_BINARY_DIR}"
+            ${CMAKE_SOURCE_DIR}/tools/darwin/Support/CopyRootFiles-darwin_embedded.command
+    COMMAND "XBMC_DEPENDS=${DEPENDS_PATH}"
+            "PYTHON_VERSION=${PYTHON_VERSION}"
+            ${CMAKE_SOURCE_DIR}/tools/darwin/Support/copyframeworks-darwin_embedded.command
+    COMMAND "XBMC_DEPENDS=${DEPENDS_PATH}"
+            "NATIVEPREFIX=${NATIVEPREFIX}"
+            ${CMAKE_SOURCE_DIR}/tools/darwin/Support/Codesign.command
+)
+
+set(DEPENDS_ROOT_FOR_XCODE ${NATIVEPREFIX}/..)
+
+set(DARWIN_EMBEDDED_CPACK_DIR ${CMAKE_BINARY_DIR}/tools/darwin/packaging/darwin_embedded)
+set(DARWIN_EMBEDDED_DSYM_TARGET_DIR /Users/Shared/xbmc-depends/dSyms)
+set(DARWIN_EMBEDDED_DSYM_FILENAME ${APP_NAME}.app.dSYM)
+set(DARWIN_EMBEDDED_PACKAGE ${PLATFORM_BUNDLE_IDENTIFIER})
+set(DARWIN_EMBEDDED_PACKAGE_ARM64 ${DARWIN_EMBEDDED_PACKAGE}64)
+set(DARWIN_EMBEDDED_VERSION ${APP_VERSION_MAJOR}.${APP_VERSION_MINOR})
+set(DARWIN_EMBEDDED_REVISION 0)
+if(APP_VERSION_TAG_LC)
+  set(DARWIN_EMBEDDED_REVISION ${DARWIN_EMBEDDED_REVISION}~${APP_VERSION_TAG_LC})
+endif()
+if(CORE_PLATFORM_NAME_LC STREQUAL tvos)
+  set(DARWIN_EMBEDDED_DEVICE tvOS)
+else()
+  set(DARWIN_EMBEDDED_DEVICE iOS)
+endif()
+
+set(DARWIN_EMBEDDED_CPACK_FILE_NAME
+    ${DARWIN_EMBEDDED_PACKAGE_ARM64}_${DARWIN_EMBEDDED_VERSION}-${DARWIN_EMBEDDED_REVISION}_${PLATFORM}-arm)
+set(DARWIN_EMBEDDED_IPA_CPACK_CONFIG CPackConfig-ipa.cmake)
+
+configure_file(${CMAKE_SOURCE_DIR}/tools/darwin/packaging/darwin_embedded/mkdeb-darwin_embedded.sh.in
+               ${DARWIN_EMBEDDED_CPACK_DIR}/mkdeb-darwin_embedded.sh @ONLY)
+configure_file(${CMAKE_SOURCE_DIR}/tools/darwin/packaging/darwin_embedded/cpack_install-darwin_embedded.cmake.in
+               ${DARWIN_EMBEDDED_CPACK_DIR}/cpack_install-darwin_embedded.cmake @ONLY)
+
+set(DARWIN_EMBEDDED_CPACK_KIND ipa)
+set(DARWIN_EMBEDDED_CPACK_GENERATOR ZIP)
+set(DARWIN_EMBEDDED_CPACK_PACKAGE_NAME ${DARWIN_EMBEDDED_PACKAGE})
+configure_file(${CMAKE_SOURCE_DIR}/tools/darwin/packaging/darwin_embedded/CPackConfig-darwin_embedded.cmake.in
+               ${DARWIN_EMBEDDED_CPACK_DIR}/${DARWIN_EMBEDDED_IPA_CPACK_CONFIG} @ONLY)
+
+configure_file(${CMAKE_SOURCE_DIR}/xbmc/platform/darwin/Credits.html.in
+               ${CMAKE_BINARY_DIR}/xbmc/platform/darwin/Credits.html @ONLY)
+
+add_custom_target(deb
+    COMMAND sh ./mkdeb-darwin_embedded.sh ${CORE_BUILD_CONFIG}
+    WORKING_DIRECTORY ${DARWIN_EMBEDDED_CPACK_DIR})
+add_dependencies(deb ${APP_NAME_LC})
+
+add_custom_target(ipa
+    COMMAND ${CMAKE_COMMAND} -E env COPYFILE_DISABLE=true COPY_EXTENDED_ATTRIBUTES_DISABLE=true
+            ${CMAKE_CPACK_COMMAND} -C ${CORE_BUILD_CONFIG} --config ${DARWIN_EMBEDDED_IPA_CPACK_CONFIG}
+    WORKING_DIRECTORY ${DARWIN_EMBEDDED_CPACK_DIR})
+add_dependencies(ipa ${APP_NAME_LC})

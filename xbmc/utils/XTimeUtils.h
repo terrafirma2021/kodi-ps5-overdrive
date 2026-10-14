@@ -1,0 +1,79 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#pragma once
+
+#include <chrono>
+#include <cstdint>
+#include <string>
+#include <thread>
+#include <tuple>
+
+#if !defined(TARGET_WINDOWS)
+#include "PlatformDefs.h"
+#else
+// This is needed, a forward declaration of FILETIME
+// breaks everything
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
+#endif
+
+namespace KODI
+{
+namespace TIME
+{
+struct SystemTime
+{
+  unsigned short year;
+  unsigned short month;
+  unsigned short dayOfWeek;
+  unsigned short day;
+  unsigned short hour;
+  unsigned short minute;
+  unsigned short second;
+  unsigned short milliseconds;
+};
+
+struct FileTime
+{
+  unsigned int lowDateTime;
+  unsigned int highDateTime;
+};
+
+void GetLocalTime(SystemTime* systemTime);
+
+/*! \brief Return bias in minutes for the system time zone and the given time value.
+ \param time The time value.
+ \return a tuple with a sucess flag and the the bias in minutes.
+*/
+std::tuple<bool, int64_t> GetTimezoneBias(const SystemTime& time);
+
+template<typename Rep, typename Period>
+void Sleep(std::chrono::duration<Rep, Period> duration)
+{
+  if (duration == std::chrono::duration<Rep, Period>::zero())
+  {
+    std::this_thread::yield();
+    return;
+  }
+
+  std::this_thread::sleep_for(duration);
+}
+
+int FileTimeToLocalFileTime(const FileTime* fileTime, FileTime* localFileTime);
+int SystemTimeToFileTime(const SystemTime* systemTime, FileTime* fileTime);
+long CompareFileTime(const FileTime* fileTime1, const FileTime* fileTime2);
+int FileTimeToSystemTime(const FileTime* fileTime, SystemTime* systemTime);
+int LocalFileTimeToFileTime(const FileTime* LocalFileTime, FileTime* fileTime);
+
+int FileTimeToTimeT(const FileTime* localFileTime, time_t* pTimeT);
+int TimeTToFileTime(time_t timeT, FileTime* localFileTime);
+} // namespace TIME
+} // namespace KODI

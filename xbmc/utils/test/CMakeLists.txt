@@ -1,0 +1,67 @@
+set(SOURCES TestAlarmClock.cpp
+            TestAliasShortcutUtils.cpp
+            TestArchive.cpp
+            TestArtUtils.cpp
+            TestBase64.cpp
+            TestBitstreamConverter.cpp
+            TestBitstreamStats.cpp
+            TestCharsetConverter.cpp
+            TestCPUInfo.cpp
+            TestComponentContainer.cpp
+            TestContentUtils.cpp
+            TestCrc32.cpp
+            TestDatabaseUtils.cpp
+            TestDigest.cpp
+            TestEndianSwap.cpp
+            TestExecString.cpp
+            TestFileExtensionProvider.cpp
+            TestFileOperationJob.cpp
+            TestFileUtils.cpp
+            TestGlobalsHandling.cpp
+            TestGPUInfo.cpp
+            TestHTMLUtil.cpp
+            TestHttpHeader.cpp
+            TestHttpParser.cpp
+            TestHttpRangeUtils.cpp
+            TestHttpResponse.cpp
+            TestJobManager.cpp
+            TestJobQueue.cpp
+            TestJSONVariantParser.cpp
+            TestJSONVariantWriter.cpp
+            TestLabelFormatter.cpp
+            TestLangCodeExpander.cpp
+            TestLanguageTag.cpp
+            TestLocale.cpp
+            Testlog.cpp
+            TestMap.cpp
+            TestMathUtils.cpp
+            TestMime.cpp
+            TestMp4ChplReader.cpp
+            TestPOUtils.cpp
+            TestRegExp.cpp
+            TestRingBuffer.cpp
+            TestRssReader.cpp
+            TestScraperParser.cpp
+            TestScraperUrl.cpp
+            TestSet.cpp
+            TestSortUtils.cpp
+            TestStopwatch.cpp
+            TestStreamDetails.cpp
+            TestStreamUtils.cpp
+            TestStringUtils.cpp
+            TestSystemInfo.cpp
+            TestURIUtils.cpp
+            TestUrlOptions.cpp
+            TestUrlParsing.cpp
+            TestVariant.cpp
+            TestXBMCTinyXML.cpp
+            TestXBMCTinyXML2.cpp
+            TestXMLUtils.cpp)
+
+if(TARGET ${APP_NAME_LC}::Bluray)
+  list(APPEND SOURCES TestBluray.cpp)
+endif()
+
+set(HEADERS TestGlobalsHandlingPattern1.h)
+
+core_add_test_library(utils_test)

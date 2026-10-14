@@ -1,0 +1,15 @@
+media/*
+sounds/*
+system/addon-manifest.xml
+system/colors.xml
+system/dialogcolors.xml
+system/keyboardlayouts/*
+system/overdrive/*
+system/keymaps/*
+system/language-subtag-registry.txt
+system/library/*
+system/peripherals.xml
+system/playercorefactory.xml
+system/settings/*
+system/shaders/*
+userdata/*

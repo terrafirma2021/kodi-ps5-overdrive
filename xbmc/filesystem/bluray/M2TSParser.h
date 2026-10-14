@@ -1,0 +1,116 @@
+/*
+ *  Copyright (C) 2025 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#pragma once
+
+#include "URL.h"
+#include "filesystem/DiscDirectoryHelper.h"
+
+#include <cstddef>
+#include <memory>
+#include <unordered_map>
+#include <vector>
+
+namespace XFILE
+{
+enum class ENCODING_TYPE : uint8_t;
+struct BlurayPlaylistInformation;
+
+struct Descriptor
+{
+  // user-defined ctor required for XCode 15.2 and emplace_back
+  Descriptor(unsigned int newTag, int newLength, std::vector<std::byte>&& newData);
+
+  unsigned int tag;
+  int length;
+  std::vector<std::byte> data;
+};
+
+struct TSStreamInfo
+{
+  unsigned int pid{};
+  ENCODING_TYPE streamType{};
+  std::vector<Descriptor> descriptors{};
+
+  // Determine if details complete
+  unsigned int seen{0};
+  bool completed{false};
+
+  // Methods
+  TSStreamInfo() = default;
+  virtual ~TSStreamInfo() = default;
+  TSStreamInfo(const TSStreamInfo&) = default;
+  TSStreamInfo& operator=(const TSStreamInfo&) = default;
+  TSStreamInfo(TSStreamInfo&&) noexcept = default;
+  TSStreamInfo& operator=(TSStreamInfo&&) noexcept = default;
+};
+
+struct TSAudioStreamInfo : TSStreamInfo
+{
+  unsigned int channels{0};
+  unsigned int sampleRate{0};
+
+  // DTS
+  bool isXLL{false}; // DTS-HD MA - needs to be true for DTS:X
+  bool hasSubstream{false}; // Needs to be true for DTS:X
+  bool isXLLX{false};
+  bool isXLLXIMAX{false};
+
+  // AC3 / Dolby
+  bool hasDependantStream{false};
+  bool isAtmos{false};
+};
+
+struct TSVideoStreamInfo : TSStreamInfo
+{
+  unsigned int height{0};
+  unsigned int width{0};
+  unsigned int bitDepth{0};
+  float sampleAspectRatio{0.0}; // width:height of a sample, not the display aspect ratio
+  bool is3d{false};
+
+  bool hdr10{false};
+  bool hdr10Plus{false};
+  bool dolbyVision{false};
+  bool isEnhancementLayer{false};
+};
+
+// The ratio the frame is to be displayed at, which is the coded frame's ratio scaled by the shape
+// of a sample (see DVDDemuxFFmpeg, which derives fAspect the same way). Zero when the elementary
+// stream did not signal a sample aspect ratio or the frame size is unknown.
+inline float GetDisplayAspectRatio(const TSVideoStreamInfo& videoStream)
+{
+  if (videoStream.sampleAspectRatio <= 0.0f || videoStream.width == 0 || videoStream.height == 0)
+    return 0.0f;
+
+  return static_cast<float>(videoStream.width) / static_cast<float>(videoStream.height) *
+         videoStream.sampleAspectRatio;
+}
+
+using StreamMap = std::unordered_map<unsigned int, std::shared_ptr<TSStreamInfo>>;
+
+class CM2TSParser
+{
+public:
+  static bool GetStreams(const CURL& url,
+                         BlurayPlaylistInformation& playlistInformation,
+                         StreamMap& streams);
+
+  static bool GetStreamsFromFile(const std::string& path,
+                                 unsigned int clip,
+                                 const std::string& clipExtension,
+                                 StreamMap& streams);
+
+  static std::vector<std::reference_wrapper<TSVideoStreamInfo>> GetVideoStreams(
+      const StreamMap& streams);
+  static std::vector<std::reference_wrapper<TSAudioStreamInfo>> GetAudioStreams(
+      const StreamMap& streams);
+  static std::vector<std::reference_wrapper<TSStreamInfo>> GetSubtitleStreams(
+      const StreamMap& streams);
+};
+} // namespace XFILE

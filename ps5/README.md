@@ -1,3 +1,7 @@
+> **Kodi PS5 + Overdrive users:** This is the inherited PS5MC platform guide.
+> Its release links and example title ID refer to the upstream PS5MC project.
+> Use the [root README](../README.md) and title ID `PPSA99742` for this preview.
+
 <p align="center">
   <img src="title/sce_sys/icon0.png" width="160" alt="PS5MC (Kodi) for PlayStation 5">
 </p>

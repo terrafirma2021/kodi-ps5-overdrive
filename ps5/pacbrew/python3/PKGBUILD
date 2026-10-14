@@ -56,7 +56,7 @@ _modules=(py_cv_module_grp=n/a py_cv_module_syslog=n/a py_cv_module__dbm=n/a
 # references them under HAVE_SCHED_SETPARAM/SETSCHEDULER (incl. module init),
 # so header-off + functions-on is an inconsistent build. Scheduler control
 # is meaningless in a title anyway. (fexecve, not fexecv, is the real key.)
-_cache=(ac_cv_func_wait3=no ac_cv_func_wait4=no ac_cv_func_waitpid=no
+_cache=(ac_cv_func_wait=no ac_cv_func_wait3=no ac_cv_func_wait4=no ac_cv_func_waitpid=no
         ac_cv_func_execv=no ac_cv_func_fexecve=no ac_cv_func_setpriority=no
         ac_cv_func_sendfile=no ac_cv_header_sched_h=no
         ac_cv_func_posix_spawn=no ac_cv_func_posix_spawnp=no
@@ -66,7 +66,7 @@ _cache=(ac_cv_func_wait3=no ac_cv_func_wait4=no ac_cv_func_waitpid=no
         ac_cv_func_getentropy=yes
         ac_cv_func_pthread_getname_np=no ac_cv_func_pthread_get_name_np=no
         ac_cv_func_pthread_setname_np=no ac_cv_func_pthread_set_name_np=no
-        ac_cv_func_getc_unlocked=no
+        ac_cv_have_getc_unlocked=no
         ac_cv_func_sched_setparam=no ac_cv_func_sched_setscheduler=no
         ac_cv_func_sched_get_priority_max=no ac_cv_func_sched_rr_get_interval=no
         ac_cv_func_sched_setaffinity=no

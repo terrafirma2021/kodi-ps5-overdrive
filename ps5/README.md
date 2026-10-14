@@ -108,8 +108,9 @@ updates leave alone; `kodi-reset` clears it (see *Switches*).
 - **Library:** thumbnails, databases and settings persist between sessions.
 - **Internet:** Kodi's add-on repository, add-on installs and updates,
   artwork and scraper downloads (HTTPS, verified against Kodi's CA bundle).
-- **Python add-ons** (CPython 3.14, built into Kodi): scrapers, weather,
-  plugins and services, including their own HTTPS requests.
+- **Python add-ons when built with script 19** (CPython 3.14 linked into Kodi):
+  scrapers, weather, plugins and services, including their own HTTPS requests.
+  Builds configured without script 19 can install these add-ons but cannot run them.
 - **Hardware decoding recovery:** a file the decoder refuses before its first
   picture is replayed from the start, first in hardware with a cleaned
   bitstream, then in software, instead of hanging on the busy spinner.

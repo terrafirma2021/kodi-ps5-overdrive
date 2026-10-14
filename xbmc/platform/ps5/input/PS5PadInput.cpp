@@ -32,7 +32,7 @@ namespace
 constexpr uint32_t DIRECTION_BITS =
     PAD_BUTTON_UP | PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT;
 
-constexpr auto POLL_INTERVAL = 8ms; // 125 Hz, matching the pad report rate
+constexpr auto POLL_INTERVAL = 8ms; // Kodi's sampling choice; not a required PS5 pad rate
 constexpr auto REPEAT_DELAY = 400ms;
 constexpr auto REPEAT_RATE = 80ms;
 constexpr int USER_REFRESH_POLLS = 125; // re-read the login list once a second

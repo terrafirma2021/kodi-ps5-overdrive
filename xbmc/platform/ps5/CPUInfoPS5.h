@@ -18,5 +18,6 @@ public:
 
   bool SupportsCPUUsage() const override { return false; }
   int GetUsedPercentage() override { return 0; }
-  float GetCPUFrequency() override { return 3500.0f; }
+  // The PS5 clock is dynamic. No title-safe live clock query is available.
+  float GetCPUFrequency() override { return 0.0f; }
 };

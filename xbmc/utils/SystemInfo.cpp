@@ -303,11 +303,18 @@ const CSysData &CSysInfoJob::GetData() const
 
 CSysData::INTERNET_STATE CSysInfoJob::GetInternetState()
 {
+#if defined(TARGET_PS5)
+  // The console may deliberately have no external internet route. The HTTP
+  // probe can wait indefinitely behind a blocked bridge and hold up every
+  // other System Info value in this job, including the local IP address.
+  return CSysData::UNKNOWN;
+#else
   // Internet connection state!
   auto http = XFILE::CreateHttpClient();
   if (http->IsInternet())
     return CSysData::CONNECTED;
   return CSysData::DISCONNECTED;
+#endif
 }
 
 std::string CSysInfoJob::GetMACAddress()
@@ -480,8 +487,13 @@ std::string CSysInfo::TranslateInfo(int info) const
   case SYSTEM_INTERNET_STATE:
     if (m_info.internetState == CSysData::CONNECTED)
       return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13296);
-    else
+    if (m_info.internetState == CSysData::DISCONNECTED)
       return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13297);
+#if defined(TARGET_PS5)
+    return "Not tested";
+#else
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13297);
+#endif
   case SYSTEM_BATTERY_LEVEL:
     return m_info.batteryLevel;
   default:

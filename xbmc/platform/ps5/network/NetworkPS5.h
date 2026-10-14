@@ -33,11 +33,8 @@ public:
  * \brief Network information for the console.
  *
  * Sockets, DNS and HTTP work through the FreeBSD-derived libc, so Kodi's
- * generic networking is untouched. This class only answers the "what is my
- * address" questions the GUI asks. It uses getifaddrs(); if that symbol turns
- * out to be missing from the console libc at link time, replace the body of
- * FindIpv4() in NetworkPS5.cpp with sceNetCtlGetInfo() (the -lSceNetCtl stub
- * is already on the link line).
+ * generic networking is untouched. This class reports IP configuration
+ * through sceNetCtlGetInfo(), falling back to getifaddrs() for IP/netmask.
  */
 class CNetworkPS5 : public CNetworkBase
 {

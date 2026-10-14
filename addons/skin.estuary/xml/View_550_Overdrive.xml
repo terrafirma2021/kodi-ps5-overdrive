@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<includes>
+	<!-- The catalog's two real root folders, presented as controller-sized cards. -->
+	<include name="View_550_Overdrive">
+		<control type="group">
+			<visible>Control.IsVisible(550)</visible>
+			<include>OpenClose_Right</include>
+			<include>Visible_Right</include>
+			<control type="panel" id="550">
+				<left>586</left><top>305</top><width>1280</width><height>610</height>
+				<orientation>horizontal</orientation>
+				<onleft>9000</onleft><onright>550</onright>
+				<onup>550</onup><ondown>550</ondown>
+				<scrolltime tween="sine" easing="out">250</scrolltime>
+				<viewtype label="Overdrive">icon</viewtype>
+				<visible>!Container.Content(games)</visible>
+				<itemlayout width="620" height="570">
+					<control type="group">
+						<control type="image">
+							<left>8</left><top>5</top><width>596</width><height>485</height>
+							<texture colordiffuse="FF142541" border="24">buttons/dialogbutton-nofo.png</texture>
+						</control>
+						<control type="image">
+							<left>45</left><top>46</top><width>120</width><height>120</height>
+							<texture colordiffuse="grey">icons/sidemenu/overdrive.png</texture>
+						</control>
+						<control type="label">
+							<left>45</left><top>288</top><width>520</width><height>70</height>
+							<font>font45</font><label>$INFO[ListItem.Label]</label>
+						</control>
+						<control type="label">
+							<left>47</left><top>368</top><width>510</width><height>46</height>
+							<font>font27</font><textcolor>grey</textcolor>
+							<label>Browse the catalog</label>
+						</control>
+					</control>
+				</itemlayout>
+				<focusedlayout width="620" height="570">
+					<control type="group">
+						<depth>DepthContentPopout</depth>
+						<animation type="Focus">
+							<effect type="zoom" start="100" end="103" time="180" tween="sine" center="auto" />
+						</animation>
+						<control type="image">
+							<left>8</left><top>5</top><width>596</width><height>485</height>
+							<texture colordiffuse="FF20539B" border="24">buttons/dialogbutton-fo.png</texture>
+						</control>
+						<control type="image">
+							<left>43</left><top>44</top><width>124</width><height>124</height>
+							<texture>icons/sidemenu/overdrive.png</texture>
+						</control>
+						<control type="image">
+							<left>44</left><top>252</top><width>80</width><height>4</height>
+							<texture colordiffuse="blue">colors/white.png</texture>
+						</control>
+						<control type="label">
+							<left>45</left><top>288</top><width>520</width><height>70</height>
+							<font>font45</font><label>$INFO[ListItem.Label]</label>
+						</control>
+						<control type="label">
+							<left>47</left><top>368</top><width>510</width><height>46</height>
+							<font>font27</font><textcolor>white</textcolor>
+							<label>Press Cross to open</label>
+						</control>
+					</control>
+				</focusedlayout>
+			</control>
+		</control>
+	</include>
+</includes>

@@ -10,14 +10,24 @@ This repository is based on [Kodi](https://github.com/xbmc/xbmc) and the [PS5MC 
 | --- | --- |
 | Native Kodi interface, DualSense navigation, local and network media | Included through the PS5MC port |
 | Overdrive entry on Kodi's home screen | Working on a PS5 running firmware 13.60 |
+| PS5 Edition Estuary skin | Dark home screen, controller focus styling, and native Overdrive cards |
 | Games and Homebrew browsing | Working |
 | Title artwork and details | Working when the artwork host is reachable |
 | Bundled catalog | 1,845 game and homebrew metadata entries |
+| PS5 System Info | Local network and video output values; unavailable values marked `-` |
 | Search, downloads, installation, updates, and account features | Not implemented in this preview |
 
 **The catalog is metadata only.** This repository and release contain no games, game archives, download links, archive passwords, firmware, exploit, or Sony SDK. Opening a catalog entry shows its details; it does not download or install the title. The [integration notes](docs/OVERDRIVE-INTEGRATION.md) describe the current code and the remaining work.
 
 The PS5 test on **14 October 2026** confirmed that Kodi launches and that the Overdrive Games, Homebrew, and title-detail views work. Other firmware versions and the rest of Kodi's media features have not been retested for this preview; see the [PS5MC platform notes](ps5/README.md) for the port's broader feature information and limits.
+
+### PS5 interface and System Info
+
+The bundled Estuary skin has a PS5 Edition home screen and a dedicated Overdrive entry. Overdrive remains a native Kodi window; the Games and Homebrew cards lead into the catalog's normal title lists and details. The background and icon are original assets in this repository, with a generator at `addons/skin.estuary/tools/generate_ps5_assets.py`.
+
+Kodi's **Settings → System information** uses PS5 readings where the title environment provides them: output resolution, refresh rate, display HDR/SDR state, high-refresh support, local IP configuration from NetCtl, and the CPU cores visible to the title. The displayed free memory is Kodi's title memory, not the console's total physical RAM. The Network page reports local configuration and marks external internet as **not tested**; it does not contact an outside service. The Storage page displays `Storage: -`, and the Summary page displays `Controller battery: -`. Those are placeholders: Kodi does not make a controller-battery request. CPU and GPU temperatures and the current CPU clock have no verified title-safe reading in this build. Other System Info rows continue to use Kodi's normal platform information.
+
+DualSense navigation reads the current pad state on Kodi's dedicated input thread. Its 8 ms sleep between reads is this port's choice, not a Sony-mandated polling interval. No HID battery query runs in the input path.
 
 ## Install on a PS5
 
@@ -28,6 +38,8 @@ You need a PS5 with a working homebrew environment, a compatible HEN/kstuff stac
 3. Copy that entire folder to `/data/homebrew/PPSA99742` on the PS5. Keep the `share/kodi` files, `eboot.bin`, `sce_module`, and `sce_sys` together.
 4. Run ShadowMountPlus **Scan/Rescan Library** or add `/data/homebrew/PPSA99742` to its manual list, then rescan.
 5. Open **Kodi Overdrive Preview** from the PS5 Game Library. In Kodi, choose **Overdrive** on the home menu, then **Games** or **Homebrew**. Select a title to see its details.
+
+The existing `v0.1.0-preview.1` archive predates the PS5 Edition skin and System Info changes on the current source branch. Build from source for those changes until a newer release archive is published.
 
 For your own media, use Kodi's **Videos → Files → Add videos** or **Music → Files → Add music**. Network shares can be added by IP address using SMB or NFS. Kodi's settings and library live in its PS5 save data and normally survive an app update.
 

@@ -1,26 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <window>
-	<defaultcontrol always="true">52</defaultcontrol>
+	<defaultcontrol always="true">550</defaultcontrol>
 	<backgroundcolor>background</backgroundcolor>
-	<views>50,52,55,500</views>
+	<views>550,50</views>
 	<menucontrol>9000</menucontrol>
 	<controls>
 		<include>DefaultBackground</include>
 		<control type="group">
 			<animation effect="fade" start="100" end="0" time="200" tween="sine" condition="$EXP[infodialog_active]">Conditional</animation>
+			<include>View_550_Overdrive</include>
 			<include>View_50_List</include>
-			<include>View_52_IconWall</include>
-			<include>View_55_WideList</include>
-			<include>View_500_Wall</include>
-			<control type="group">
-				<include>OpenClose_Left</include>
-				<include>Visible_Left</include>
-				<visible>Control.IsVisible(55)</visible>
-				<include>ListThumbInfoPanel</include>
-			</control>
 			<include content="TopBar">
 				<param name="breadcrumbs_label" value="Overdrive" />
 			</include>
+			<control type="group">
+				<left>595</left><top>158</top><width>1190</width><height>140</height>
+				<visible>Control.IsVisible(550)</visible>
+				<control type="label">
+					<left>0</left><top>0</top><width>1170</width><height>80</height>
+					<font>font60</font><label>Explore</label>
+				</control>
+				<control type="label">
+					<left>2</left><top>86</top><width>1150</width><height>44</height>
+					<font>font27</font><textcolor>grey</textcolor>
+					<label>Choose a collection to browse</label>
+				</control>
+			</control>
 			<include content="BottomBar">
 				<param name="info_visible" value="true" />
 			</include>

@@ -24,6 +24,11 @@
 #include "utils/SystemInfo.h"
 #include "windowing/WinSystem.h"
 
+#if defined(TARGET_PS5)
+#include "network/Network.h"
+#include "platform/ps5/VideoOutInfo.h"
+#endif
+
 constexpr int CONTROL_TEXT_START = 2;
 constexpr int CONTROL_TEXT_END = 13; // 12 lines
 
@@ -35,6 +40,17 @@ constexpr int CONTROL_TEXT_END = 13; // 12 lines
 #define CONTROL_BT_HARDWARE 98
 #define CONTROL_BT_PVR      99
 #define CONTROL_BT_POLICY   100
+
+#if defined(TARGET_PS5)
+namespace
+{
+std::string Ps5DisplayValue(std::string value)
+{
+  const std::string busy = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(503);
+  return value.empty() || value == busy ? "-" : value;
+}
+}
+#endif
 
 constexpr int CONTROL_BT_DONATE = 101;
 constexpr int CONTROL_GROUP_DONATE = 102;
@@ -85,6 +101,10 @@ bool CGUIWindowSystemInfo::OnMessage(CGUIMessage& message)
       {
         ResetLabels();
         m_section = focusedControl;
+#if defined(TARGET_PS5)
+        if (m_section == CONTROL_BT_STORAGE)
+          m_diskUsage.clear();
+#endif
       }
       if (m_section >= CONTROL_BT_STORAGE && m_section <= CONTROL_BT_PVR)
       {
@@ -118,13 +138,27 @@ void CGUIWindowSystemInfo::FrameMove()
   if (m_section == CONTROL_BT_DEFAULT)
   {
     SET_CONTROL_LABEL(40, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20154));
+#if defined(TARGET_PS5)
+    SET_CONTROL_LABEL(i++, "Platform: PlayStation 5");
+    SET_CONTROL_LABEL(i++, "Memory: Kodi title heap");
+#endif
     SetControlLabel(i++, "{}: {}", 158, SYSTEM_FREE_MEMORY);
+#if defined(TARGET_PS5)
+    CNetworkInterface* summaryIface = CServiceBroker::GetNetwork().GetFirstConnectedInterface();
+    SET_CONTROL_LABEL(i++, StringUtils::Format("IP address: {}",
+                      summaryIface ? Ps5DisplayValue(summaryIface->GetCurrentIPAddress()) : "-"));
+#else
     SetControlLabel(i++, "{}: {}", 150, NETWORK_IP_ADDRESS);
+#endif
     SetControlLabel(i++, "{} {}", 13287, SYSTEM_SCREEN_RESOLUTION);
     SetControlLabel(i++, "{} {}", 13283, SYSTEM_OS_VERSION_INFO);
     SetControlLabel(i++, "{}: {}", 12390, SYSTEM_UPTIME);
     SetControlLabel(i++, "{}: {}", 12394, SYSTEM_TOTALUPTIME);
+#if defined(TARGET_PS5)
+    SET_CONTROL_LABEL(i++, "Controller battery: -");
+#else
     SetControlLabel(i++, "{}: {}", 12395, SYSTEM_BATTERY_LEVEL);
+#endif
   }
 
   else if (m_section == CONTROL_BT_STORAGE)
@@ -132,6 +166,11 @@ void CGUIWindowSystemInfo::FrameMove()
     SET_CONTROL_LABEL(40, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20155));
     if (m_diskUsage.empty())
       m_diskUsage = CServiceBroker::GetMediaManager().GetDiskUsage();
+
+#if defined(TARGET_PS5)
+    if (m_diskUsage.empty())
+      m_diskUsage.emplace_back("Storage: -");
+#endif
 
     for (size_t d = 0; d < m_diskUsage.size() && d <= CONTROL_TEXT_END - CONTROL_TEXT_START; ++d)
     {
@@ -142,6 +181,19 @@ void CGUIWindowSystemInfo::FrameMove()
   else if (m_section == CONTROL_BT_NETWORK)
   {
     SET_CONTROL_LABEL(40, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20158));
+#if defined(TARGET_PS5)
+    auto& network = CServiceBroker::GetNetwork();
+    CNetworkInterface* iface = network.GetFirstConnectedInterface();
+    const std::vector<std::string> dns = network.GetNameServers();
+    SET_CONTROL_LABEL(i++, StringUtils::Format("Local network: {}", iface ? "IP obtained" : "Disconnected"));
+    SET_CONTROL_LABEL(i++, StringUtils::Format("MAC address: {}", iface ? Ps5DisplayValue(iface->GetMacAddress()) : "-"));
+    SET_CONTROL_LABEL(i++, StringUtils::Format("IP address: {}", iface ? Ps5DisplayValue(iface->GetCurrentIPAddress()) : "-"));
+    SET_CONTROL_LABEL(i++, StringUtils::Format("Subnet mask: {}", iface ? Ps5DisplayValue(iface->GetCurrentNetmask()) : "-"));
+    SET_CONTROL_LABEL(i++, StringUtils::Format("Gateway: {}", iface ? Ps5DisplayValue(iface->GetCurrentDefaultGateway()) : "-"));
+    SET_CONTROL_LABEL(i++, StringUtils::Format("DNS 1: {}", dns.empty() ? "-" : dns[0]));
+    SET_CONTROL_LABEL(i++, StringUtils::Format("DNS 2: {}", dns.size() < 2 ? "-" : dns[1]));
+    SET_CONTROL_LABEL(i++, "Internet: not tested");
+#else
     SET_CONTROL_LABEL(i++, CServiceBroker::GetGUI()->GetInfoManager().GetLabel(
                                NETWORK_LINK_STATE, INFO::DEFAULT_CONTEXT));
     SetControlLabel(i++, "{}: {}", 149, NETWORK_MAC_ADDRESS);
@@ -151,11 +203,37 @@ void CGUIWindowSystemInfo::FrameMove()
     SetControlLabel(i++, "{}: {}", 13161, NETWORK_DNS1_ADDRESS);
     SetControlLabel(i++, "{}: {}", 20307, NETWORK_DNS2_ADDRESS);
     SetControlLabel(i++, "{} {}", 13295, SYSTEM_INTERNET_STATE);
+#endif
   }
 
   else if (m_section == CONTROL_BT_VIDEO)
   {
     SET_CONTROL_LABEL(40, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20159));
+#if defined(TARGET_PS5)
+    unsigned outputWidth = 0;
+    unsigned outputHeight = 0;
+    if (KODI::PLATFORM::PS5::QuerySystemResolution(outputWidth, outputHeight))
+      SET_CONTROL_LABEL(i++, StringUtils::Format("PS5 output: {} x {}", outputWidth, outputHeight));
+    else
+      SET_CONTROL_LABEL(i++, "PS5 output: -");
+    const float refresh = KODI::PLATFORM::PS5::QueryRefreshRate();
+    if (refresh > 0.0f)
+      SET_CONTROL_LABEL(i++, StringUtils::Format("Output refresh: {:.2f} Hz", refresh));
+    else
+      SET_CONTROL_LABEL(i++, "Output refresh: -");
+    if (KODI::PLATFORM::PS5::VideoOutHandle() >= 0)
+    {
+      SET_CONTROL_LABEL(i++, StringUtils::Format("Output range: {}",
+                                                KODI::PLATFORM::PS5::IsDisplayHdr() ? "HDR" : "SDR"));
+      SET_CONTROL_LABEL(i++, StringUtils::Format("High refresh preset: {}",
+                           KODI::PLATFORM::PS5::IsHighRefreshSupported() ? "available" : "unavailable"));
+    }
+    else
+    {
+      SET_CONTROL_LABEL(i++, "Output range: -");
+      SET_CONTROL_LABEL(i++, "High refresh preset: -");
+    }
+#endif
     SET_CONTROL_LABEL(i++, CServiceBroker::GetGUI()->GetInfoManager().GetLabel(
                                SYSTEM_VIDEO_ENCODER_INFO, INFO::DEFAULT_CONTEXT));
     SetControlLabel(i++, "{} {}", 13287, SYSTEM_SCREEN_RESOLUTION);
@@ -197,7 +275,9 @@ void CGUIWindowSystemInfo::FrameMove()
                 platform));
     }
 
+#if !defined(TARGET_PS5)
     SetControlLabel(i++, "{} {}", 22010, SYSTEM_GPU_TEMPERATURE);
+#endif
 
     const std::string hdrTypes = CServiceBroker::GetGUI()->GetInfoManager().GetLabel(
         SYSTEM_SUPPORTED_HDR_TYPES, INFO::DEFAULT_CONTEXT);
@@ -219,6 +299,14 @@ void CGUIWindowSystemInfo::FrameMove()
       static std::string model = cpuInfo->GetCPUModel();
       if (!model.empty())
         SET_CONTROL_LABEL(i++, "CPU: " + model);
+#if defined(TARGET_PS5)
+      else
+        SET_CONTROL_LABEL(i++, "CPU: -");
+#endif
+
+#if defined(TARGET_PS5)
+      SET_CONTROL_LABEL(i++, StringUtils::Format("Visible CPU cores: {}", cpuInfo->GetCPUCount()));
+#endif
 
       static std::string mips = cpuInfo->GetCPUBogoMips();
       if (!mips.empty())
@@ -241,7 +329,9 @@ void CGUIWindowSystemInfo::FrameMove()
         SET_CONTROL_LABEL(i++, "Serial: " + serial);
 
       // temperature can't really be conditional because of localization units
+#if !defined(TARGET_PS5)
       SetControlLabel(i++, "{} {}", 22011, SYSTEM_CPU_TEMPERATURE);
+#endif
 
       // we can check if the cpufrequency is not 0 (default if not implemented)
       // but we have to call through CGUIInfoManager -> CSystemGUIInfo -> CSysInfo
@@ -297,9 +387,13 @@ void CGUIWindowSystemInfo::ResetLabels()
 
 void CGUIWindowSystemInfo::SetControlLabel(int id, const char *format, int label, int info)
 {
+  std::string value = CServiceBroker::GetGUI()->GetInfoManager().GetLabel(info, INFO::DEFAULT_CONTEXT);
+#if defined(TARGET_PS5)
+  value = Ps5DisplayValue(value);
+#endif
   std::string tmpStr = StringUtils::Format(
       format, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(label),
-      CServiceBroker::GetGUI()->GetInfoManager().GetLabel(info, INFO::DEFAULT_CONTEXT));
+      value);
   SET_CONTROL_LABEL(id, tmpStr);
 }
 
